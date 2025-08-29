@@ -661,9 +661,10 @@ namespace BELEPOS.Controllers.v1
 
                 }
 
-                await _eposHelper.SaveParts(repairOrderId, request);
+                
                 if (request.Parts?.Any() == true)
                 {
+                    await _eposHelper.SaveParts(repairOrderId, request);
                     foreach (var part in request.Parts)
                         await _eposHelper.EnsureStockAndDeductAsync(part.ProductId, part.Quantity);
                 }
@@ -685,7 +686,7 @@ namespace BELEPOS.Controllers.v1
                 await _eposHelper.SaveChecklistResponses(repairOrderId, request);
 
                 //  await _eposHelper.SendRepairTicketEmail(ticketNo, repairStatus, request);
-
+                await _eposHelper.PrintReceiptAsync(repairOrderId, "EPSON TM-T82-42C Receipt");
                 await transaction.CommitAsync();
                 return Ok(new
                 {

@@ -793,6 +793,10 @@ public partial class BeleposContext : DbContext
             entity.Property(e => e.SerialNumber)
                 .HasMaxLength(100)
                 .HasColumnName("serial_number");
+            entity.Property(e => e.Subcategoryid).HasColumnName("subcategoryid");
+            entity.Property(e => e.Tokennumber)
+                .HasMaxLength(50)
+                .HasColumnName("tokennumber");
             entity.Property(e => e.Total)
                 .HasPrecision(10, 2)
                 .HasColumnName("total");

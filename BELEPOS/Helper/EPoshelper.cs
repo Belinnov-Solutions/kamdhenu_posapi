@@ -1,10 +1,14 @@
 ﻿using BELEPOS.DataModel;
-using Razor.Templating.Core;
 using BELEPOS.Entity;
 using Microsoft.EntityFrameworkCore;
 using Razor.Templating.Core;
+using Razor.Templating.Core;
+using System.Drawing;
+using System.Drawing.Printing;
+using System.Drawing.Printing;
 using System.Net;
 using System.Net.Mail;
+using System.Text;
 
 namespace BELEPOS.Helper
 {
@@ -472,6 +476,54 @@ namespace BELEPOS.Helper
             }
         }
 
+        //public async Task SaveParts(Guid repairOrderId, RepairOrderDto request)
+        //{
+        //    if (request.Parts?.Any() != true) return;
+
+        //    var existingParts = await _context.RepairOrderParts
+        //        .Where(p => p.RepairOrderId == repairOrderId)
+        //        .ToListAsync();
+
+        //    foreach (var part in request.Parts)
+        //    {
+        //        var existingPart = existingParts.FirstOrDefault(p => p.ProductId == part.ProductId);
+        //        if (existingPart != null)
+        //        {
+        //            existingPart.ProductName = part.ProductName;
+        //           // existingPart.BrandName = part.BrandName;
+        //         //   existingPart.PartDescription = part.PartDescription;
+        //            //existingPart.DeviceType = part.DeviceType;
+        //            //existingPart.DeviceModel = part.DeviceModel;
+        //          //  existingPart.SerialNumber = part.SerialNumber;
+        //            existingPart.Quantity = part.Quantity;
+        //            existingPart.Price = part.Price;
+        //            existingPart.Total = part.Price * part.Quantity;
+        //            existingPart.ProductType = request.ProductType;
+        //           // existingPart.Partnumber = part.PartNumber;
+        //        }
+        //        else
+        //        {
+        //            _context.RepairOrderParts.Add(new RepairOrderPart
+        //            {
+        //                Id = Guid.NewGuid(),
+        //                RepairOrderId = repairOrderId,
+        //                ProductId = part.ProductId,
+        //               // BrandName = part.BrandName,
+        //                ProductName = part.ProductName,
+        //             //   PartDescription = part.PartDescription,
+        //               // Partnumber = part.PartNumber,
+        //            //    DeviceType = part.DeviceType,
+        //             //   DeviceModel = part.DeviceModel,
+        //               // SerialNumber = part.SerialNumber,
+        //                Quantity = part.Quantity,
+        //                Price = part.Price,
+        //                Total = part.Price * part.Quantity,
+        //                ProductType = request.ProductType
+        //            });
+        //        }
+        //    }
+        //}
+
         public async Task SaveParts(Guid repairOrderId, RepairOrderDto request)
         {
             if (request.Parts?.Any() != true) return;
@@ -480,45 +532,66 @@ namespace BELEPOS.Helper
                 .Where(p => p.RepairOrderId == repairOrderId)
                 .ToListAsync();
 
-            foreach (var part in request.Parts)
+            // ✅ Get today's max token
+            var utcToday = DateTime.UtcNow.Date;
+            var utcTomorrow = utcToday.AddDays(1);
+
+            //var todayTokens = await _context.RepairOrderParts
+            //    .Where(p => p.CreatedAt >= utcToday && p.CreatedAt < utcTomorrow)
+            //    .Select(p => p.Tokennumber)
+            //    .ToListAsync();
+            var todayTokens = "TOKEN 1";
+            //int maxToken = todayTokens
+            //    .Select(t => int.TryParse(.Replace("TOKEN-", ""), out int n) ? n : 0)
+            //    .DefaultIfEmpty(0)
+            //    .Max();
+
+            int tokenCounter = 1;
+
+            // ✅ Group parts by SubcategoryId
+            var groupedParts = request.Parts.GroupBy(p => p.SubcategoryId);
+
+            foreach (var group in groupedParts)
             {
-                var existingPart = existingParts.FirstOrDefault(p => p.ProductId == part.ProductId);
-                if (existingPart != null)
+                string token = $"TOKEN-{tokenCounter}";
+
+                foreach (var part in group)
                 {
-                    existingPart.ProductName = part.ProductName;
-                   // existingPart.BrandName = part.BrandName;
-                 //   existingPart.PartDescription = part.PartDescription;
-                    //existingPart.DeviceType = part.DeviceType;
-                    //existingPart.DeviceModel = part.DeviceModel;
-                  //  existingPart.SerialNumber = part.SerialNumber;
-                    existingPart.Quantity = part.Quantity;
-                    existingPart.Price = part.Price;
-                    existingPart.Total = part.Price * part.Quantity;
-                    existingPart.ProductType = request.ProductType;
-                   // existingPart.Partnumber = part.PartNumber;
-                }
-                else
-                {
-                    _context.RepairOrderParts.Add(new RepairOrderPart
+                    var existingPart = existingParts.FirstOrDefault(p => p.ProductId == part.ProductId);
+                    if (existingPart != null)
                     {
-                        Id = Guid.NewGuid(),
-                        RepairOrderId = repairOrderId,
-                        ProductId = part.ProductId,
-                       // BrandName = part.BrandName,
-                        ProductName = part.ProductName,
-                     //   PartDescription = part.PartDescription,
-                       // Partnumber = part.PartNumber,
-                    //    DeviceType = part.DeviceType,
-                     //   DeviceModel = part.DeviceModel,
-                       // SerialNumber = part.SerialNumber,
-                        Quantity = part.Quantity,
-                        Price = part.Price,
-                        Total = part.Price * part.Quantity,
-                        ProductType = request.ProductType
-                    });
+                        existingPart.ProductName = part.ProductName;
+                        existingPart.Quantity = part.Quantity;
+                        existingPart.Price = part.Price;
+                        existingPart.Total = part.Price * part.Quantity;
+                        existingPart.ProductType = request.ProductType;
+                        existingPart.Tokennumber = token;   // ✅ assign token
+                        existingPart.Subcategoryid = part.SubcategoryId;
+                        //existingPart.UpdatedAt = DateTime.UtcNow;
+                    }
+                    else
+                    {
+                        _context.RepairOrderParts.Add(new RepairOrderPart
+                        {
+                            Id = Guid.NewGuid(),
+                            RepairOrderId = repairOrderId,
+                            ProductId = part.ProductId,
+                            ProductName = part.ProductName,
+                            Quantity = part.Quantity,
+                            Price = part.Price,
+                            Total = part.Price * part.Quantity,
+                            ProductType = request.ProductType,
+                            Tokennumber = token,           // ✅ assign token
+                            Subcategoryid = part.SubcategoryId,
+                           // CreatedAt = DateTime.UtcNow
+                        });
+                    }
                 }
+
+                tokenCounter++; // ✅ new token for next subcategory
             }
         }
+
 
         public async Task SavePayments(Guid repairOrderId, RepairOrderDto request)
         {
@@ -747,14 +820,174 @@ namespace BELEPOS.Helper
 
         #endregion
 
+
+        /////////////////////////////////PRINT///////////////////////////////////////////////////
+        ///
+
+        public async Task PrintReceiptAsync(Guid repairOrderId, string printerName)
+        {
+            var receiptData = await (
+                from ro in _context.RepairOrders
+                join s in _context.Stores on ro.StoreId equals s.Id
+                join c in _context.Customers on ro.CustomerId equals c.CustomerId into custJoin
+                from c in custJoin.DefaultIfEmpty()
+                join p in _context.RepairOrderParts on ro.RepairOrderId equals p.RepairOrderId
+                where ro.RepairOrderId == repairOrderId
+                select new Reciept
+                {
+                    OrderNumber = ro.OrderNumber,
+                    TotalAmount = ro.TotalAmount,
+                    TaxPercent = ro.TaxPercent,
+                    DiscountType = ro.DiscountType,
+                    DiscountValue = ro.DiscountValue,
+                    StoreName = s.Name,
+                    StoreAddress = s.Address,
+                    StorePhone = s.Phone,
+                    CustomerName = c != null ? c.CustomerName : "Walk-in",
+                    CustomerPhone = c != null ? c.Phone : "",
+                    ProductName = p.ProductName,
+                    ProductType = p.ProductType,
+                    Quantity = p.Quantity,
+                    Price = p.Price,
+                    Total = p.Total,
+                    Tokennumber = p.Tokennumber,       // ✅ include token
+                    Subcategoryid = p.Subcategoryid    // ✅ include subcategory
+                }
+            ).ToListAsync();
+
+            if (!receiptData.Any())
+                return;
+
+            // ✅ Customer bill
+            PrintCustomerReceipt(receiptData, printerName);
+
+            // ✅ Subcategory slips
+            PrintSubcategorySlips(receiptData, printerName);
+        }
+
+        private void PrintCustomerReceipt(List<Reciept> receiptData, string printerName)
+        {
+            var first = receiptData.First();
+
+            var sb = new StringBuilder();
+            sb.AppendLine($"       {first.StoreName}");
+            sb.AppendLine(first.StoreAddress);
+            sb.AppendLine("Phone: " + first.StorePhone);
+            sb.AppendLine("------------------------------");
+            sb.AppendLine($"Order #: {first.OrderNumber}");
+            sb.AppendLine($"Customer: {first.CustomerName}");
+            sb.AppendLine($"Phone: {first.CustomerPhone}");
+            //sb.AppendLine($"Date: {DateTime.Now:dd/MM/yyyy HH:mm}");
+            sb.AppendLine("------------------------------");
+            sb.AppendLine("Item              Qty   Total");
+            sb.AppendLine("------------------------------");
+
+            foreach (var item in receiptData)
+            {
+                string line = $"{item.ProductName,-15}{item.Quantity,3} {item.Total,7:0.00}";
+                sb.AppendLine(line);
+            }
+
+            sb.AppendLine("------------------------------");
+
+            // ✅ Totals
+            decimal subtotal = receiptData.Sum(x => (decimal)(x.Total ?? 0));
+            decimal discount = (first.DiscountValue ?? 0);
+            decimal taxPercent = (first.TaxPercent ?? 0);
+            decimal tax = (subtotal - discount) * taxPercent / 100;
+            decimal grandTotal = subtotal - discount + tax;
+
+            sb.AppendLine($"Subtotal:{subtotal,18:0.00}");
+            sb.AppendLine($"Discount:{discount,18:0.00}");
+            sb.AppendLine($"Tax:{tax,23:0.00}");
+            sb.AppendLine($"TOTAL:{grandTotal,21:0.00}");
+            sb.AppendLine("------------------------------");
+            sb.AppendLine("   THANK YOU, VISIT AGAIN!   ");
+            sb.AppendLine("\x1D\x56\x00"); // ✅ Autocut
+
+            RawPrint(sb.ToString(), printerName);
+        }
+
+        //private void PrintSubcategorySlips(List<Reciept> receiptData, string printerName)
+        //{
+        //    var grouped = receiptData.GroupBy(r => r.ProductType ?? "General");
+
+        //    foreach (var group in grouped)
+        //    {
+        //        var first = group.First();
+        //        var sb = new StringBuilder();
+
+        //        sb.AppendLine($"       {first.StoreName}");
+        //        sb.AppendLine($"   --- {group.Key.ToUpper()} SLIP ---");
+        //        sb.AppendLine($"Order #: {first.OrderNumber}");
+        //       // sb.AppendLine($"Date: {DateTime.Now:dd/MM/yyyy HH:mm}");
+        //        sb.AppendLine("------------------------------");
+        //        sb.AppendLine("Item              Qty");
+        //        sb.AppendLine("------------------------------");
+
+        //        foreach (var item in group)
+        //        {
+        //            string line = $"{item.ProductName,-15}{item.Quantity,3}";
+        //            sb.AppendLine(line);
+        //        }
+
+        //        sb.AppendLine("------------------------------");
+        //        sb.AppendLine("   --- END OF SLIP ---   ");
+        //        sb.AppendLine("\x1D\x56\x00"); // ✅ Autocut
+
+        //        RawPrint(sb.ToString(), printerName);
+        //    }
+        //}
+        private void PrintSubcategorySlips(List<Reciept> receiptData, string printerName)
+        {
+            // 🔹 Group by SubcategoryId
+            var grouped = receiptData.GroupBy(r => r.Subcategoryid);
+
+            foreach (var group in grouped)
+            {
+                var first = group.First();
+                var sb = new StringBuilder();
+
+                sb.AppendLine($"       {first.StoreName}");
+                sb.AppendLine($"   --- SUBCATEGORY SLIP ---");
+                sb.AppendLine($"Order #: {first.OrderNumber}");
+
+                // ✅ Token Number (from DB for each subcategory group)
+                sb.AppendLine($"Token #: {first.Tokennumber}");
+
+                // ✅ Subcategory (replace GUID with name later if needed)
+                sb.AppendLine($"Subcategory: {group.Key}");
+
+                sb.AppendLine($"Date: {DateTime.Now:dd/MM/yyyy HH:mm}");
+                sb.AppendLine("------------------------------");
+                sb.AppendLine("Item              Qty");
+                sb.AppendLine("------------------------------");
+
+                foreach (var item in group)
+                {
+                    string line = $"{item.ProductName,-15}{item.Quantity,3}";
+                    sb.AppendLine(line);
+                }
+
+                sb.AppendLine("------------------------------");
+                sb.AppendLine("   --- END OF SLIP ---   ");
+                sb.AppendLine("\x1D\x56\x00"); // ✅ Autocut
+
+                RawPrint(sb.ToString(), printerName);
+            }
+        }
+
+        private void RawPrint(string text, string printerName)
+        {
+            PrintDocument pd = new PrintDocument();
+            pd.PrinterSettings.PrinterName = printerName;
+            pd.PrintPage += (s, e) =>
+            {
+                e.Graphics.DrawString(text, new Font("Consolas", 9), Brushes.Black, new PointF(10, 10));
+            };
+            pd.Print();
+        }
     }
-
-
-
-
-
-
-
-
 }
+
 

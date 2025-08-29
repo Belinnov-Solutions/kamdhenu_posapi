@@ -1,19 +1,25 @@
-﻿using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
-using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
+﻿using Asp.Versioning;
 using BELEPOS.DataModel;
-using Asp.Versioning;
-using Humanizer;
-using Microsoft.AspNetCore.Authorization;
 using BELEPOS.Entity;
 using BELEPOS.Helper;
-using System.Drawing.Drawing2D;
-using System.Globalization;
-using Microsoft.CodeAnalysis;
 using ClosedXML.Excel;
+using Humanizer;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.CodeAnalysis;
+using Microsoft.EntityFrameworkCore;
+using System.Drawing;            
+using RawPrint;
+using RawPrint.NetStd;
+using System.Collections.Generic;
+using System.Drawing.Drawing2D;
+using System.Drawing.Printing;
+using System.Globalization;
+using System.Linq;
+using System.Net.Sockets;
+using System.Text;
+using System.Threading.Tasks;
 
 
 namespace BELEPOS.Controllers.v1
@@ -36,6 +42,8 @@ namespace BELEPOS.Controllers.v1
             _ePosHelper = ePoshelper;
             _config = config;
         }
+
+
 
 
         #region fetch category list

@@ -39,5 +39,9 @@ public partial class RepairOrderPart
 
     public bool? Cancelled { get; set; }
 
+    public string? Tokennumber { get; set; }
+
+    public Guid? Subcategoryid { get; set; }
+
     public virtual RepairOrder RepairOrder { get; set; } = null!;
 }

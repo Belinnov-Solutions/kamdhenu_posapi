@@ -50,6 +50,8 @@ namespace BELEPOS.Entity
 
         public Guid? ProductId { get; set; }
 
+        public Guid? SubcategoryId { get; set; }   
+
         public string ProductName { get; set; }
 
         public string? BrandName { get; set; }
