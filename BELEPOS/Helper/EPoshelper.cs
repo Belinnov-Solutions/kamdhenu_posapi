@@ -476,54 +476,6 @@ namespace BELEPOS.Helper
             }
         }
 
-        //public async Task SaveParts(Guid repairOrderId, RepairOrderDto request)
-        //{
-        //    if (request.Parts?.Any() != true) return;
-
-        //    var existingParts = await _context.RepairOrderParts
-        //        .Where(p => p.RepairOrderId == repairOrderId)
-        //        .ToListAsync();
-
-        //    foreach (var part in request.Parts)
-        //    {
-        //        var existingPart = existingParts.FirstOrDefault(p => p.ProductId == part.ProductId);
-        //        if (existingPart != null)
-        //        {
-        //            existingPart.ProductName = part.ProductName;
-        //           // existingPart.BrandName = part.BrandName;
-        //         //   existingPart.PartDescription = part.PartDescription;
-        //            //existingPart.DeviceType = part.DeviceType;
-        //            //existingPart.DeviceModel = part.DeviceModel;
-        //          //  existingPart.SerialNumber = part.SerialNumber;
-        //            existingPart.Quantity = part.Quantity;
-        //            existingPart.Price = part.Price;
-        //            existingPart.Total = part.Price * part.Quantity;
-        //            existingPart.ProductType = request.ProductType;
-        //           // existingPart.Partnumber = part.PartNumber;
-        //        }
-        //        else
-        //        {
-        //            _context.RepairOrderParts.Add(new RepairOrderPart
-        //            {
-        //                Id = Guid.NewGuid(),
-        //                RepairOrderId = repairOrderId,
-        //                ProductId = part.ProductId,
-        //               // BrandName = part.BrandName,
-        //                ProductName = part.ProductName,
-        //             //   PartDescription = part.PartDescription,
-        //               // Partnumber = part.PartNumber,
-        //            //    DeviceType = part.DeviceType,
-        //             //   DeviceModel = part.DeviceModel,
-        //               // SerialNumber = part.SerialNumber,
-        //                Quantity = part.Quantity,
-        //                Price = part.Price,
-        //                Total = part.Price * part.Quantity,
-        //                ProductType = request.ProductType
-        //            });
-        //        }
-        //    }
-        //}
-
         public async Task SaveParts(Guid repairOrderId, RepairOrderDto request)
         {
             if (request.Parts?.Any() != true) return;
@@ -533,20 +485,23 @@ namespace BELEPOS.Helper
                 .ToListAsync();
 
             // ✅ Get today's max token
-            var utcToday = DateTime.UtcNow.Date;
+            //var utcToday = DateTime.UtcNow.Date;
+            var utcToday = DateTime.Now;
             var utcTomorrow = utcToday.AddDays(1);
+            //var todayTokens = "TOKEN 1";
 
-            //var todayTokens = await _context.RepairOrderParts
-            //    .Where(p => p.CreatedAt >= utcToday && p.CreatedAt < utcTomorrow)
-            //    .Select(p => p.Tokennumber)
-            //    .ToListAsync();
-            var todayTokens = "TOKEN 1";
-            //int maxToken = todayTokens
-            //    .Select(t => int.TryParse(.Replace("TOKEN-", ""), out int n) ? n : 0)
-            //    .DefaultIfEmpty(0)
-            //    .Max();
+            var todayTokens = await _context.RepairOrderParts
+                .Where(p => p.CreatedAt >= utcToday && p.CreatedAt < utcTomorrow)
+                .Select(p => p.Tokennumber)
+                .ToListAsync();
 
-            int tokenCounter = 1;
+
+            int maxToken = todayTokens
+                .Select(t => int.TryParse(t.Replace("TOKEN-", ""), out int n) ? n : 0)
+                .DefaultIfEmpty(0)
+                .Max();
+
+            int tokenCounter = maxToken + 1;
 
             // ✅ Group parts by SubcategoryId
             var groupedParts = request.Parts.GroupBy(p => p.SubcategoryId);
@@ -832,6 +787,8 @@ namespace BELEPOS.Helper
                 join c in _context.Customers on ro.CustomerId equals c.CustomerId into custJoin
                 from c in custJoin.DefaultIfEmpty()
                 join p in _context.RepairOrderParts on ro.RepairOrderId equals p.RepairOrderId
+                join pc in _context.Categories on p.Subcategoryid equals pc.Categoryid into pcJoin
+                from pc in pcJoin.DefaultIfEmpty()
                 where ro.RepairOrderId == repairOrderId
                 select new Reciept
                 {
@@ -850,8 +807,9 @@ namespace BELEPOS.Helper
                     Quantity = p.Quantity,
                     Price = p.Price,
                     Total = p.Total,
-                    Tokennumber = p.Tokennumber,       // ✅ include token
-                    Subcategoryid = p.Subcategoryid    // ✅ include subcategory
+                    Tokennumber = p.Tokennumber,
+                    CategorrName = pc.CategoryName// ✅ include token
+                   
                 }
             ).ToListAsync();
 
@@ -877,7 +835,7 @@ namespace BELEPOS.Helper
             sb.AppendLine($"Order #: {first.OrderNumber}");
             sb.AppendLine($"Customer: {first.CustomerName}");
             sb.AppendLine($"Phone: {first.CustomerPhone}");
-            //sb.AppendLine($"Date: {DateTime.Now:dd/MM/yyyy HH:mm}");
+            sb.AppendLine($"Date: {DateTime.Now:dd/MM/yyyy HH:mm}");
             sb.AppendLine("------------------------------");
             sb.AppendLine("Item              Qty   Total");
             sb.AppendLine("------------------------------");
@@ -938,10 +896,11 @@ namespace BELEPOS.Helper
         //        RawPrint(sb.ToString(), printerName);
         //    }
         //}
+
         private void PrintSubcategorySlips(List<Reciept> receiptData, string printerName)
         {
             // 🔹 Group by SubcategoryId
-            var grouped = receiptData.GroupBy(r => r.Subcategoryid);
+            var grouped = receiptData.GroupBy(r => r.CategorrName);
 
             foreach (var group in grouped)
             {

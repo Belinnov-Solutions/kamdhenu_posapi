@@ -29,11 +29,13 @@ namespace BELEPOS.Controllers.v1
     {
         private readonly BeleposContext _context;
         private readonly EPoshelper _eposHelper;
+        private readonly IConfiguration _config;
 
-        public OrderController(BeleposContext context, EPoshelper ePoshelper)
+        public OrderController(BeleposContext context, EPoshelper ePoshelper, IConfiguration config)
         {
             _context = context;
             _eposHelper = ePoshelper;
+            _config = config;
         }
 
 
@@ -234,394 +236,396 @@ namespace BELEPOS.Controllers.v1
 
 
 
-//        [HttpPost("ConfirmOrder")]
-//        public async Task<IActionResult> ConfirmOrder([FromBody] RepairOrderDto request)
-//        {
+        //        [HttpPost("ConfirmOrder")]
+        //        public async Task<IActionResult> ConfirmOrder([FromBody] RepairOrderDto request)
+        //        {
 
-//            var storeExists = await _context.Stores
-//              .AnyAsync(s => s.Id == request.StoreId && s.DelInd == false && s.IsActive == true);
+        //            var storeExists = await _context.Stores
+        //              .AnyAsync(s => s.Id == request.StoreId && s.DelInd == false && s.IsActive == true);
 
-//            if (!storeExists)
-//                return BadRequest("Store not found or inactive");
+        //            if (!storeExists)
+        //                return BadRequest("Store not found or inactive");
 
-//            var repairOrder = new RepairOrder();
+        //            var repairOrder = new RepairOrder();
 
-//            using var transaction = await _context.Database.BeginTransactionAsync();
-//            try
-//            {
-
-
-//                var isUpdate = request.RepairOrderId != Guid.Empty;
-//                var repairOrderId = isUpdate ? request.RepairOrderId : Guid.NewGuid();
-//                var ticketNo = isUpdate ? request.Tickets.TicketNo : await _eposHelper.GenerateTicketNumberAsync();
-//                var orderNumber = isUpdate ? request.OrderNumber : await _eposHelper.GenerateOrderNumberAsync();
-
-//                //decimal totalAmount = 0;
-//                decimal servicePrice = 0;
-
-//                //decimal partTotal = request.Parts?.Sum(p => p.Price * p.Quantity) ?? 0;
-
-//                //var service = await _context.Products
-//                //        .FirstOrDefaultAsync(s => s.Id == request.Tickets.TaskTypeId && s.Type == ProductType.Service.ToString());
-//                //if (service != null)
-//                //{
-//                //    totalAmount = (decimal)(service.Price + partTotal);
-//                //}
-//                //else
-//                //{
-//                //    totalAmount = partTotal;
-//                //}
-//                decimal totalAmount = await _eposHelper.CalculateTotalAmountAsync(request);
-//                decimal paidAmount = request.PaidAmount ?? 0;
+        //            using var transaction = await _context.Database.BeginTransactionAsync();
+        //            try
+        //            {
 
 
-//                if (isUpdate)
-//                {
-//                    var existingOrder = await _context.RepairOrders.FirstOrDefaultAsync(o => o.RepairOrderId == repairOrderId);
-//                    if (existingOrder == null)
-//                        return NotFound("Repair order not found.");
+        //                var isUpdate = request.RepairOrderId != Guid.Empty;
+        //                var repairOrderId = isUpdate ? request.RepairOrderId : Guid.NewGuid();
+        //                var ticketNo = isUpdate ? request.Tickets.TicketNo : await _eposHelper.GenerateTicketNumberAsync();
+        //                var orderNumber = isUpdate ? request.OrderNumber : await _eposHelper.GenerateOrderNumberAsync();
 
-//                    existingOrder.PaymentMethod = request.PaymentMethod;
-//                    existingOrder.CustomerId = request.CustomerId;
-//                    existingOrder.UserId = request.UserId;
-//                    existingOrder.IssueDescription = request.IssueDescription;
-//                    existingOrder.RepairStatus = request.RepairStatus ?? "Pending";
-//                    existingOrder.ExpectedDeliveryDate = request.ExpectedDeliveryDate;
-//                    existingOrder.ReceivedDate = request.ReceivedDate?.ToUniversalTime();
-//                    existingOrder.StoreId = request.StoreId;
-//                    existingOrder.UpdatedAt = DateTime.Now.ToUniversalTime();
-//                    existingOrder.Isfinalsubmit = request.IsFinalSubmit;
-//                    //existingOrder.TotalAmount = existingOrder.TotalAmount + partTotal;
-//                    existingOrder.TotalAmount = totalAmount;
-//                    existingOrder.Contactmethod = request.Contactmethod != null
-//                     ? string.Join(",", request.Contactmethod)
-//                    : null;
+        //                //decimal totalAmount = 0;
+        //                decimal servicePrice = 0;
 
-//                    // Determine paid status
-//                    existingOrder.Paid = request.RepairStatus == "Delivered";
+        //                //decimal partTotal = request.Parts?.Sum(p => p.Price * p.Quantity) ?? 0;
 
-//                    var ticket = await _context.RepairTickets.FirstOrDefaultAsync(t => t.OrderId == repairOrderId);
-//                    if (ticket != null)
-//                    {
-//                        ticket.Storeid = request.StoreId ?? throw new Exception("StoreId is required for ticket");
-//                        ticket.DeviceType = request.Tickets.DeviceType;
-//                        ticket.Ipaddress = request.Tickets.IPAddress;
-//                        ticket.Userid = request.UserId;
-//                        ticket.Brand = request.Tickets.Brand;
-//                        ticket.Model = request.Tickets.Model;
-//                        ticket.ImeiNumber = request.Tickets.ImeiNumber;
-//                        ticket.SerialNumber = request.Tickets.SerialNumber;
-//                        ticket.Passcode = request.Tickets.Passcode;
-//                        ticket.ServiceCharge = request.Tickets.ServiceCharge;
-//                        ticket.Repaircost = request.Tickets.RepairCost;
-//                        ticket.Technicianid = request.Tickets.TechnicianId;
-//                        ticket.Duedate = request.Tickets.DueDate?.ToUniversalTime() ?? DateTime.UtcNow;
-//                        ticket.Status = request.Tickets.Status ?? RepairStatus.Pending.ToString();
-//                        ticket.Tasktypeid = request.Tickets.TaskTypeId;
-//                        ticket.DeviceColour = request.Tickets.DeviceColour;
-
-//                        if (request.Tickets.Notes?.Any() == true)
-//                        {
-//                            var existingNotes = await _context.Ticketnotes
-//                                .Where(n => n.Ticketid == ticket.Ticketid).ToListAsync();
-
-//                            foreach (var note in request.Tickets.Notes)
-//                            {
-//                                if (note.Id != Guid.Empty)
-//                                {
-//                                    var existingNote = existingNotes.FirstOrDefault(n => n.Noteid == note.Id);
-//                                    if (existingNote != null)
-//                                    {
-//                                        existingNote.Note = note.Notes;
-//                                        existingNote.Type = note.Type;
-//                                    }
-//                                }
-//                                else
-//                                {
-//                                    _context.Ticketnotes.Add(new Ticketnote
-//                                    {
-//                                        Noteid = Guid.NewGuid(),
-//                                        Note = note.Notes,
-//                                        Type = note.Type,
-//                                        Ticketid = ticket.Ticketid,
-//                                        OrderId = repairOrderId,
-//                                        Userid = request.UserId
-//                                    });
-//                                }
-//                            }
-//                        }
-//                    }
-//                }
-//                else
-//                {
-
-//                    var partProductIds = request.Parts?.Select(p => p.ProductId).ToList() ?? new();
-
-                    
-//                    repairOrder = new RepairOrder
-//                    {
-//                        RepairOrderId = repairOrderId,
-//                        OrderNumber = orderNumber,
-//                        PaymentMethod = request.PaymentMethod,
-//                        CustomerId = request.CustomerId,
-//                        UserId = request.UserId,
-//                        IssueDescription = request.IssueDescription,
-//                        RepairStatus = RepairStatus.Pending.ToString(),
-//                        Contactmethod = request.Contactmethod != null ? string.Join(",", request.Contactmethod) : null,
-//                        ExpectedDeliveryDate = request.ExpectedDeliveryDate,
-//                        StoreId = request.StoreId,
-//                        ReceivedDate = request.ReceivedDate?.ToUniversalTime(),
-//                        CreatedAt = request.CreatedAt?.ToUniversalTime(),
-//                        Isfinalsubmit = request.IsFinalSubmit,
-//                        ProductType = request.ProductType,
-//                        Delind = false,
-//                        TotalAmount = totalAmount
-//                    };
-
-//                    // Determine paid
-//                    repairOrder.Paid = request.RepairStatus! == "Delivered";
-//                    _context.RepairOrders.Add(repairOrder);
-//                    _context.OrderPayments.Add(new OrderPayment
-//                    {
-//                        Paymentid = Guid.NewGuid(),
-//                        Repairorderid = repairOrderId,
-//                        Amount = paidAmount,
-//                        PaymentMethod = request.PaymentMethod,
-//                        PartialPayment = paidAmount < totalAmount,
-//                        // TotalAmountAtTime = totalAmount,
-//                        // FullyPaid = paidAmount >= totalAmount,
-//                        //CreatedBy = request.UserId,
-//                        // PaidAt = DateTime.UtcNow,
-//                        //CreatedAt = DateTime.UtcNow,
-
-//                    });
+        //                //var service = await _context.Products
+        //                //        .FirstOrDefaultAsync(s => s.Id == request.Tickets.TaskTypeId && s.Type == ProductType.Service.ToString());
+        //                //if (service != null)
+        //                //{
+        //                //    totalAmount = (decimal)(service.Price + partTotal);
+        //                //}
+        //                //else
+        //                //{
+        //                //    totalAmount = partTotal;
+        //                //}
+        //                decimal totalAmount = await _eposHelper.CalculateTotalAmountAsync(request);
+        //                decimal paidAmount = request.PaidAmount ?? 0;
 
 
+        //                if (isUpdate)
+        //                {
+        //                    var existingOrder = await _context.RepairOrders.FirstOrDefaultAsync(o => o.RepairOrderId == repairOrderId);
+        //                    if (existingOrder == null)
+        //                        return NotFound("Repair order not found.");
 
-//                    if (request.Tickets != null)
-//                    {
-//                        if (request.ProductType != ProductType.Product.ToString())
-//                        {
-//                            var ticket = new RepairTicket
-//                            {
-//                                Ticketid = Guid.NewGuid(),
-//                                OrderId = repairOrderId,
-//                                Storeid = request.StoreId ?? throw new Exception("StoreId is required"),
-//                                DeviceType = request.Tickets.DeviceType,
-//                                Ipaddress = request.Tickets.IPAddress,
-//                                Userid = request.UserId,
-//                                Brand = request.Tickets.Brand,
-//                                Model = request.Tickets.Model,
-//                                DeviceColour = request.Tickets.DeviceColour,
-//                                ImeiNumber = request.Tickets.ImeiNumber,
-//                                SerialNumber = request.Tickets.SerialNumber,
-//                                Passcode = request.Tickets.Passcode,
-//                                ServiceCharge = request.Tickets.ServiceCharge,
-//                                Repaircost = servicePrice,
-//                                Technicianid = request.Tickets.TechnicianId,
-//                                Duedate = request.Tickets.DueDate?.ToUniversalTime(),
-//                                Status = request.Tickets.Status ?? RepairStatus.Pending.ToString(),
-//                                Tasktypeid = request.Tickets.TaskTypeId,
-//                                TicketNo = ticketNo
-//                            };
+        //                    existingOrder.PaymentMethod = request.PaymentMethod;
+        //                    existingOrder.CustomerId = request.CustomerId;
+        //                    existingOrder.UserId = request.UserId;
+        //                    existingOrder.IssueDescription = request.IssueDescription;
+        //                    existingOrder.RepairStatus = request.RepairStatus ?? "Pending";
+        //                    existingOrder.ExpectedDeliveryDate = request.ExpectedDeliveryDate;
+        //                    existingOrder.ReceivedDate = request.ReceivedDate?.ToUniversalTime();
+        //                    existingOrder.StoreId = request.StoreId;
+        //                    existingOrder.UpdatedAt = DateTime.Now.ToUniversalTime();
+        //                    existingOrder.Isfinalsubmit = request.IsFinalSubmit;
+        //                    //existingOrder.TotalAmount = existingOrder.TotalAmount + partTotal;
+        //                    existingOrder.TotalAmount = totalAmount;
+        //                    existingOrder.Contactmethod = request.Contactmethod != null
+        //                     ? string.Join(",", request.Contactmethod)
+        //                    : null;
 
-//                            _context.RepairTickets.Add(ticket);
+        //                    // Determine paid status
+        //                    existingOrder.Paid = request.RepairStatus == "Delivered";
 
-//                            if (request.Tickets.Notes?.Any() == true)
-//                            {
-//                                foreach (var note in request.Tickets.Notes)
-//                                {
-//                                    _context.Ticketnotes.Add(new Ticketnote
-//                                    {
-//                                        Noteid = Guid.NewGuid(),
-//                                        Note = note.Notes,
-//                                        Type = note.Type,
-//                                        Ticketid = ticket.Ticketid,
-//                                        OrderId = repairOrderId,
-//                                        Userid = request.UserId
-//                                    });
-//                                }
-//                            }
-//                        }
-//                    }
+        //                    var ticket = await _context.RepairTickets.FirstOrDefaultAsync(t => t.OrderId == repairOrderId);
+        //                    if (ticket != null)
+        //                    {
+        //                        ticket.Storeid = request.StoreId ?? throw new Exception("StoreId is required for ticket");
+        //                        ticket.DeviceType = request.Tickets.DeviceType;
+        //                        ticket.Ipaddress = request.Tickets.IPAddress;
+        //                        ticket.Userid = request.UserId;
+        //                        ticket.Brand = request.Tickets.Brand;
+        //                        ticket.Model = request.Tickets.Model;
+        //                        ticket.ImeiNumber = request.Tickets.ImeiNumber;
+        //                        ticket.SerialNumber = request.Tickets.SerialNumber;
+        //                        ticket.Passcode = request.Tickets.Passcode;
+        //                        ticket.ServiceCharge = request.Tickets.ServiceCharge;
+        //                        ticket.Repaircost = request.Tickets.RepairCost;
+        //                        ticket.Technicianid = request.Tickets.TechnicianId;
+        //                        ticket.Duedate = request.Tickets.DueDate?.ToUniversalTime() ?? DateTime.UtcNow;
+        //                        ticket.Status = request.Tickets.Status ?? RepairStatus.Pending.ToString();
+        //                        ticket.Tasktypeid = request.Tickets.TaskTypeId;
+        //                        ticket.DeviceColour = request.Tickets.DeviceColour;
 
-//                }
+        //                        if (request.Tickets.Notes?.Any() == true)
+        //                        {
+        //                            var existingNotes = await _context.Ticketnotes
+        //                                .Where(n => n.Ticketid == ticket.Ticketid).ToListAsync();
 
-//                if (request.Parts?.Any() == true)
-//                {
-//                    var existingParts = await _context.RepairOrderParts
-//                        .Where(p => p.RepairOrderId == repairOrderId).ToListAsync();
+        //                            foreach (var note in request.Tickets.Notes)
+        //                            {
+        //                                if (note.Id != Guid.Empty)
+        //                                {
+        //                                    var existingNote = existingNotes.FirstOrDefault(n => n.Noteid == note.Id);
+        //                                    if (existingNote != null)
+        //                                    {
+        //                                        existingNote.Note = note.Notes;
+        //                                        existingNote.Type = note.Type;
+        //                                    }
+        //                                }
+        //                                else
+        //                                {
+        //                                    _context.Ticketnotes.Add(new Ticketnote
+        //                                    {
+        //                                        Noteid = Guid.NewGuid(),
+        //                                        Note = note.Notes,
+        //                                        Type = note.Type,
+        //                                        Ticketid = ticket.Ticketid,
+        //                                        OrderId = repairOrderId,
+        //                                        Userid = request.UserId
+        //                                    });
+        //                                }
+        //                            }
+        //                        }
+        //                    }
+        //                }
+        //                else
+        //                {
 
-//                    foreach (var part in request.Parts)
-//                    {
-//                        var existingPart = existingParts.FirstOrDefault(p => p.ProductId == part.ProductId);
-
-//                        if (existingPart != null)
-//                        {
-//                            existingPart.ProductName = part.ProductName;
-//                            //existingPart.BrandName = part.BrandName;
-//                            //  existingPart.PartDescription = part.PartDescription;
-//                            // existingPart.DeviceType = part.DeviceType;
-//                            // existingPart.DeviceModel = part.DeviceModel;
-//                            //  existingPart.SerialNumber = part.SerialNumber;
-//                            existingPart.Quantity = part.Quantity;
-//                            existingPart.Price = part.Price;
-//                            existingPart.Total = part.Price * part.Quantity;
-//                            existingPart.ProductType = request.ProductType;
-//                        }
-//                        else
-//                        {
-//                            _context.RepairOrderParts.Add(new RepairOrderPart
-//                            {
-//                                Id = Guid.NewGuid(),
-//                                RepairOrderId = repairOrderId,
-//                                ProductId = part.ProductId,
-//                                // BrandName = part.BrandName,
-//                                ProductName = part.ProductName,
-//                                // PartDescription = part.PartDescription,
-//                                //  DeviceType = part.DeviceType,
-//                                // DeviceModel = part.DeviceModel,
-//                                // SerialNumber = part.SerialNumber,
-//                                Quantity = part.Quantity,
-//                                Price = part.Price,
-//                                Total = part.Price * part.Quantity,
-//                                ProductType = request.ProductType
-//                            });
-//                        }
-//                    }
-//                }
-
-//                // Add payment order
-//                //_context.OrderPayments.Add(new OrderPayment
-//                //{
-//                //    Paymentid = Guid.NewGuid(),
-//                //    Repairorderid = repairOrderId,
-//                //    Amount = (decimal)totalAmount,
-//                //    PaymentMethod = request.PaymentMethod,
-//                //    PartialPayment = request.RepairStatus == RepairStatus.Delivered.ToString() ? true : false,
-//                //    //PaidAt = DateTime.Now.ToUniversalTime(),
-//                //    //CreatedAt = DateTime.Now.ToUniversalTime(),
+        //                    var partProductIds = request.Parts?.Select(p => p.ProductId).ToList() ?? new();
 
 
-//                //});
+        //                    repairOrder = new RepairOrder
+        //                    {
+        //                        RepairOrderId = repairOrderId,
+        //                        OrderNumber = orderNumber,
+        //                        PaymentMethod = request.PaymentMethod,
+        //                        CustomerId = request.CustomerId,
+        //                        UserId = request.UserId,
+        //                        IssueDescription = request.IssueDescription,
+        //                        RepairStatus = RepairStatus.Pending.ToString(),
+        //                        Contactmethod = request.Contactmethod != null ? string.Join(",", request.Contactmethod) : null,
+        //                        ExpectedDeliveryDate = request.ExpectedDeliveryDate,
+        //                        StoreId = request.StoreId,
+        //                        ReceivedDate = request.ReceivedDate?.ToUniversalTime(),
+        //                        CreatedAt = request.CreatedAt?.ToUniversalTime(),
+        //                        Isfinalsubmit = request.IsFinalSubmit,
+        //                        ProductType = request.ProductType,
+        //                        Delind = false,
+        //                        TotalAmount = totalAmount
+        //                    };
 
-//                await _context.SaveChangesAsync();
+        //                    // Determine paid
+        //                    repairOrder.Paid = request.RepairStatus! == "Delivered";
+        //                    _context.RepairOrders.Add(repairOrder);
+        //                    _context.OrderPayments.Add(new OrderPayment
+        //                    {
+        //                        Paymentid = Guid.NewGuid(),
+        //                        Repairorderid = repairOrderId,
+        //                        Amount = paidAmount,
+        //                        PaymentMethod = request.PaymentMethod,
+        //                        PartialPayment = paidAmount < totalAmount,
+        //                        // TotalAmountAtTime = totalAmount,
+        //                        // FullyPaid = paidAmount >= totalAmount,
+        //                        //CreatedBy = request.UserId,
+        //                        // PaidAt = DateTime.UtcNow,
+        //                        //CreatedAt = DateTime.UtcNow,
+
+        //                    });
 
 
 
+        //                    if (request.Tickets != null)
+        //                    {
+        //                        if (request.ProductType != ProductType.Product.ToString())
+        //                        {
+        //                            var ticket = new RepairTicket
+        //                            {
+        //                                Ticketid = Guid.NewGuid(),
+        //                                OrderId = repairOrderId,
+        //                                Storeid = request.StoreId ?? throw new Exception("StoreId is required"),
+        //                                DeviceType = request.Tickets.DeviceType,
+        //                                Ipaddress = request.Tickets.IPAddress,
+        //                                Userid = request.UserId,
+        //                                Brand = request.Tickets.Brand,
+        //                                Model = request.Tickets.Model,
+        //                                DeviceColour = request.Tickets.DeviceColour,
+        //                                ImeiNumber = request.Tickets.ImeiNumber,
+        //                                SerialNumber = request.Tickets.SerialNumber,
+        //                                Passcode = request.Tickets.Passcode,
+        //                                ServiceCharge = request.Tickets.ServiceCharge,
+        //                                Repaircost = servicePrice,
+        //                                Technicianid = request.Tickets.TechnicianId,
+        //                                Duedate = request.Tickets.DueDate?.ToUniversalTime(),
+        //                                Status = request.Tickets.Status ?? RepairStatus.Pending.ToString(),
+        //                                Tasktypeid = request.Tickets.TaskTypeId,
+        //                                TicketNo = ticketNo
+        //                            };
 
-//                if (request.ChecklistResponses?.Responses?.Any() == true)
-//                {
-//                    var orderId = repairOrderId;
+        //                            _context.RepairTickets.Add(ticket);
 
-//                    if (orderId == Guid.Empty)
-//                        return BadRequest("Checklist responses require a valid order ID.");
+        //                            if (request.Tickets.Notes?.Any() == true)
+        //                            {
+        //                                foreach (var note in request.Tickets.Notes)
+        //                                {
+        //                                    _context.Ticketnotes.Add(new Ticketnote
+        //                                    {
+        //                                        Noteid = Guid.NewGuid(),
+        //                                        Note = note.Notes,
+        //                                        Type = note.Type,
+        //                                        Ticketid = ticket.Ticketid,
+        //                                        OrderId = repairOrderId,
+        //                                        Userid = request.UserId
+        //                                    });
+        //                                }
+        //                            }
+        //                        }
+        //                    }
 
-//                    var ticket = await _context.RepairTickets
-//                        .FirstOrDefaultAsync(t => t.OrderId == orderId);
+        //                }
 
-//                    if (ticket == null)
-//                        return BadRequest("Checklist responses require a valid ticket. No ticket found for this order.");
+        //                if (request.Parts?.Any() == true)
+        //                {
+        //                    var existingParts = await _context.RepairOrderParts
+        //                        .Where(p => p.RepairOrderId == repairOrderId).ToListAsync();
 
-//                    var ticketId = ticket.Ticketid;
+        //                    foreach (var part in request.Parts)
+        //                    {
+        //                        var existingPart = existingParts.FirstOrDefault(p => p.ProductId == part.ProductId);
 
-//                    var checklistIds = request.ChecklistResponses.Responses
-//                        .Select(r => r.ChecklistId)
-//                        .ToList();
+        //                        if (existingPart != null)
+        //                        {
+        //                            existingPart.ProductName = part.ProductName;
+        //                            //existingPart.BrandName = part.BrandName;
+        //                            //  existingPart.PartDescription = part.PartDescription;
+        //                            // existingPart.DeviceType = part.DeviceType;
+        //                            // existingPart.DeviceModel = part.DeviceModel;
+        //                            //  existingPart.SerialNumber = part.SerialNumber;
+        //                            existingPart.Quantity = part.Quantity;
+        //                            existingPart.Price = part.Price;
+        //                            existingPart.Total = part.Price * part.Quantity;
+        //                            existingPart.ProductType = request.ProductType;
+        //                        }
+        //                        else
+        //                        {
+        //                            _context.RepairOrderParts.Add(new RepairOrderPart
+        //                            {
+        //                                Id = Guid.NewGuid(),
+        //                                RepairOrderId = repairOrderId,
+        //                                ProductId = part.ProductId,
+        //                                // BrandName = part.BrandName,
+        //                                ProductName = part.ProductName,
+        //                                // PartDescription = part.PartDescription,
+        //                                //  DeviceType = part.DeviceType,
+        //                                // DeviceModel = part.DeviceModel,
+        //                                // SerialNumber = part.SerialNumber,
+        //                                Quantity = part.Quantity,
+        //                                Price = part.Price,
+        //                                Total = part.Price * part.Quantity,
+        //                                ProductType = request.ProductType
+        //                            });
+        //                        }
+        //                    }
+        //                }
 
-//                    var existingResponses = await _context.ChecklistResponses
-//                        .Where(r => checklistIds.Contains(r.ChecklistId) && r.OrderId == orderId && r.TicketId == ticketId)
-//                        .ToListAsync();
-
-//                    foreach (var responseDto in request.ChecklistResponses.Responses)
-//                    {
-//                        var existing = existingResponses
-//                            .FirstOrDefault(r => r.ChecklistId == responseDto.ChecklistId);
-
-//                        if (existing != null)
-//                        {
-//                            existing.Value = responseDto.Value;
-//                            existing.RepairInspection = responseDto.RepairInspection;
-//                            existing.RespondedAt = DateTime.UtcNow;
-//                        }
-//                        else
-//                        {
-//                            _context.ChecklistResponses.Add(new ChecklistResponse
-//                            {
-//                                Id = Guid.NewGuid(),
-//                                ChecklistId = responseDto.ChecklistId,
-//                                OrderId = orderId,
-//                                TicketId = ticketId,
-//                                Value = responseDto.Value,
-//                                RepairInspection = responseDto.RepairInspection,
-//                                RespondedAt = DateTime.UtcNow
-//                            });
-//                        }
-//                    }
-//                }
-//                await _context.SaveChangesAsync();// save checklist responses
-
-//                // Fetch ticket again (in case it's newly created)
-//                //var finalTicket = await _context.RepairOrders
-//                //    .FirstOrDefaultAsync(t => t.OrderNumber == orderNumber);
-
-//                //if (finalTicket != null)
-//                //{
-//                //    var customer = await _context.Customers
-//                //        .FirstOrDefaultAsync(c => c.CustomerId == finalTicket.CustomerId);
-
-//                //    var storeManager = await _context.Users
-//                //    .Include(u => u.Role)
-//                //     .FirstOrDefaultAsync(u => u.Storeid == finalTicket.StoreId && u.Role.Rolename == "Store Manager");
-
-
-//                //    var emailModel = new EmailTicketViewModel
-//                //    {
-//                //        TicketNumber = finalTicket.OrderNumber,
-//                //        Status = finalTicket.RepairStatus,
-//                //        DueDate = finalTicket.ExpectedDeliveryDate ?? DateTime.UtcNow,
-//                //        //RecipientName = customer?.Customername ?? "Customer"
-//                //    };
-
-//                //    if (!string.IsNullOrEmpty(customer?.Email))
-//                //    {
-//                //        await _eposHelper.SendRepairTicketEmailAsync(emailModel, customer.Email, finalTicket.UserId);
-//                //    }
-
-//                //    if (storeManager != null && !string.IsNullOrEmpty(storeManager.Email))
-//                //    {
-//                //        await _eposHelper.SendRepairTicketEmailAsync(emailModel, storeManager.Email, finalTicket.UserId);
-//                //    }
-//                //}
-
-//                await transaction.CommitAsync();
-
-//                return Ok(new
-//                {
-//                    message = isUpdate ? "Order updated successfully." : "Order created successfully.",
-//                    repairOrderId,
-//                    orderNumber,
-//                    ticketNo
-//                });
-//            }
-//            catch (Exception ex)
-//            {
-//                await transaction.RollbackAsync();
-//                return StatusCode(500, new
-//                {
-//                    message = "Failed to save order",
-//                    error = ex.ToString()
-//                });
-//            }
-//        }
+        //                // Add payment order
+        //                //_context.OrderPayments.Add(new OrderPayment
+        //                //{
+        //                //    Paymentid = Guid.NewGuid(),
+        //                //    Repairorderid = repairOrderId,
+        //                //    Amount = (decimal)totalAmount,
+        //                //    PaymentMethod = request.PaymentMethod,
+        //                //    PartialPayment = request.RepairStatus == RepairStatus.Delivered.ToString() ? true : false,
+        //                //    //PaidAt = DateTime.Now.ToUniversalTime(),
+        //                //    //CreatedAt = DateTime.Now.ToUniversalTime(),
 
 
-//#endregion
+        //                //});
+
+        //                await _context.SaveChangesAsync();
 
 
+
+
+        //                if (request.ChecklistResponses?.Responses?.Any() == true)
+        //                {
+        //                    var orderId = repairOrderId;
+
+        //                    if (orderId == Guid.Empty)
+        //                        return BadRequest("Checklist responses require a valid order ID.");
+
+        //                    var ticket = await _context.RepairTickets
+        //                        .FirstOrDefaultAsync(t => t.OrderId == orderId);
+
+        //                    if (ticket == null)
+        //                        return BadRequest("Checklist responses require a valid ticket. No ticket found for this order.");
+
+        //                    var ticketId = ticket.Ticketid;
+
+        //                    var checklistIds = request.ChecklistResponses.Responses
+        //                        .Select(r => r.ChecklistId)
+        //                        .ToList();
+
+        //                    var existingResponses = await _context.ChecklistResponses
+        //                        .Where(r => checklistIds.Contains(r.ChecklistId) && r.OrderId == orderId && r.TicketId == ticketId)
+        //                        .ToListAsync();
+
+        //                    foreach (var responseDto in request.ChecklistResponses.Responses)
+        //                    {
+        //                        var existing = existingResponses
+        //                            .FirstOrDefault(r => r.ChecklistId == responseDto.ChecklistId);
+
+        //                        if (existing != null)
+        //                        {
+        //                            existing.Value = responseDto.Value;
+        //                            existing.RepairInspection = responseDto.RepairInspection;
+        //                            existing.RespondedAt = DateTime.UtcNow;
+        //                        }
+        //                        else
+        //                        {
+        //                            _context.ChecklistResponses.Add(new ChecklistResponse
+        //                            {
+        //                                Id = Guid.NewGuid(),
+        //                                ChecklistId = responseDto.ChecklistId,
+        //                                OrderId = orderId,
+        //                                TicketId = ticketId,
+        //                                Value = responseDto.Value,
+        //                                RepairInspection = responseDto.RepairInspection,
+        //                                RespondedAt = DateTime.UtcNow
+        //                            });
+        //                        }
+        //                    }
+        //                }
+        //                await _context.SaveChangesAsync();// save checklist responses
+
+        //                // Fetch ticket again (in case it's newly created)
+        //                //var finalTicket = await _context.RepairOrders
+        //                //    .FirstOrDefaultAsync(t => t.OrderNumber == orderNumber);
+
+        //                //if (finalTicket != null)
+        //                //{
+        //                //    var customer = await _context.Customers
+        //                //        .FirstOrDefaultAsync(c => c.CustomerId == finalTicket.CustomerId);
+
+        //                //    var storeManager = await _context.Users
+        //                //    .Include(u => u.Role)
+        //                //     .FirstOrDefaultAsync(u => u.Storeid == finalTicket.StoreId && u.Role.Rolename == "Store Manager");
+
+
+        //                //    var emailModel = new EmailTicketViewModel
+        //                //    {
+        //                //        TicketNumber = finalTicket.OrderNumber,
+        //                //        Status = finalTicket.RepairStatus,
+        //                //        DueDate = finalTicket.ExpectedDeliveryDate ?? DateTime.UtcNow,
+        //                //        //RecipientName = customer?.Customername ?? "Customer"
+        //                //    };
+
+        //                //    if (!string.IsNullOrEmpty(customer?.Email))
+        //                //    {
+        //                //        await _eposHelper.SendRepairTicketEmailAsync(emailModel, customer.Email, finalTicket.UserId);
+        //                //    }
+
+        //                //    if (storeManager != null && !string.IsNullOrEmpty(storeManager.Email))
+        //                //    {
+        //                //        await _eposHelper.SendRepairTicketEmailAsync(emailModel, storeManager.Email, finalTicket.UserId);
+        //                //    }
+        //                //}
+
+        //                await transaction.CommitAsync();
+
+        //                return Ok(new
+        //                {
+        //                    message = isUpdate ? "Order updated successfully." : "Order created successfully.",
+        //                    repairOrderId,
+        //                    orderNumber,
+        //                    ticketNo
+        //                });
+        //            }
+        //            catch (Exception ex)
+        //            {
+        //                await transaction.RollbackAsync();
+        //                return StatusCode(500, new
+        //                {
+        //                    message = "Failed to save order",
+        //                    error = ex.ToString()
+        //                });
+        //            }
+        //        }
+
+
+        //#endregion
+
+
+        #region confirm Order
         [HttpPost("ConfirmOrder")]
         public async Task<IActionResult> ConfirmOrder([FromBody] RepairOrderDto request)
         {
+            bool printerName = _config.GetValue<bool>("AppSettings:EPSON TM-T82 Receipt");
 
             if (!await _eposHelper.StoreExists(request.StoreId))
                 return BadRequest("Store not found or inactive");
@@ -686,7 +690,7 @@ namespace BELEPOS.Controllers.v1
                 await _eposHelper.SaveChecklistResponses(repairOrderId, request);
 
                 //  await _eposHelper.SendRepairTicketEmail(ticketNo, repairStatus, request);
-                await _eposHelper.PrintReceiptAsync(repairOrderId, "EPSON TM-T82-42C Receipt");
+                await _eposHelper.PrintReceiptAsync(repairOrderId, printerName.ToString());
                 await transaction.CommitAsync();
                 return Ok(new
                 {
@@ -702,6 +706,7 @@ namespace BELEPOS.Controllers.v1
                 return StatusCode(500, new { message = "Failed to save order", error = ex.ToString() });
             }
         }
+        #endregion
 
         #region GerRepairOrderSummart
 
