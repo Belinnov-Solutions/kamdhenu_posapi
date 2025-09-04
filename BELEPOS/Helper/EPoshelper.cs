@@ -1170,7 +1170,7 @@ namespace BELEPOS.Helper
                     item.ProductName.Substring(0, 22) + "..." :
                     item.ProductName.PadRight(25);
                 string qty = item.Quantity.ToString().PadRight(5);
-                string total = item.Total?.ToString("0.00").PadLeft(8);
+                string total = item.Price?.ToString("0.00").PadLeft(8);
 
                 AddLine(sb, name + qty + total);
             }
@@ -1205,8 +1205,6 @@ namespace BELEPOS.Helper
             }
 
            
-            
-
             AddSeparator(sb);
 
             // Footer
@@ -1218,139 +1216,17 @@ namespace BELEPOS.Helper
 
         }
     
-
-        private void AddLine(StringBuilder sb, string text)
-        {
-            sb.AppendLine(text);
-        }
-
-        private void AddCenteredLine(StringBuilder sb, string text)
-        {
-            if (text.Length > ReceiptWidth)
-            {
-                sb.AppendLine(text);
-                return;
-            }
-
-            int padding = (ReceiptWidth - text.Length) / 2;
-            sb.AppendLine(new string(' ', padding) + text);
-        }
-
-        private void AddSeparator(StringBuilder sb)
-        {
-            sb.AppendLine(new string('-', ReceiptWidth));
-        }
-
-        private string MakeBold(string text)
-        {
-            // Simulate bold text by using uppercase and adding a slight underline effect
-            return text.ToUpper() + "\n" + new string('~', text.Length);
-        }
-
-
-
-
-        /*private void PrintSubcategorySlips(List<Reciept> receiptData, string printerName)
-        {
-            // 🔹 Group by SubcategoryId
-            var grouped = receiptData.GroupBy(r => r.Subcategoryid);
-            string partialPrint = _config.GetValue<string>("AppSettings:PartialPrint");
-
-            foreach (var group in grouped)
-            {
-                var first = group.First();
-                var sb = new StringBuilder();
-
-                //sb.AppendLine($"   --- Token ---");
-
-                if (partialPrint == "false")
-                {
-                    sb.AppendLine($"Order #: {first.OrderNumber}");
-                    
-                }
-
-                // ✅ Token Number (from DB for each subcategory group)
-                sb.AppendLine($"Token #: {first.Tokennumber}");
-
-                // ✅ Subcategory (replace GUID with name later if needed)
-                //sb.AppendLine($"Subcategory: {group.Key}");
-                sb.AppendLine($"Counter: {first.CategoryName}");
-
-                sb.AppendLine($"Date: {DateTime.Now:dd/MM/yyyy HH:mm}");
-                sb.AppendLine("------------------------------");
-                sb.AppendLine("Item              Qty");
-                sb.AppendLine("------------------------------");
-
-                foreach (var item in group)
-                {
-                    string line = $"{item.ProductName,-15}{item.Quantity,3}";
-                    sb.AppendLine(line);
-                }
-
-                sb.AppendLine("------------------------------");
-                sb.AppendLine("   --- END OF SLIP ---   ");
-                sb.AppendLine("\x1D\x56\x00"); // ✅ Autocut
-
-                RawPrint(sb.ToString(), printerName);
-            }
-        }*/
-
-
-
-        /*private void PrintSubcategorySlips(List<Reciept> receiptData, string printerName)
-        {
-            // 🔹 Group by SubcategoryId
-            var grouped = receiptData.GroupBy(r => r.Subcategoryid);
-            string partialPrint = _config.GetValue<string>("AppSettings:PartialPrint");
-
-            foreach (var group in grouped)
-            {
-                var first = group.First();
-                var sb = new StringBuilder();
-
-                //sb.AppendLine($"   --- Token ---");
-
-                if (partialPrint == "false")
-                {
-                    sb.AppendLine($"Order #: {first.OrderNumber}");
-
-                }
-
-                // ✅ Token Number (from DB for each subcategory group)
-                sb.AppendLine($"Token #: {first.Tokennumber}");
-
-                // ✅ Subcategory (replace GUID with name later if needed)
-                //sb.AppendLine($"Subcategory: {group.Key}");
-                sb.AppendLine($"Counter: {first.CategoryName}");
-
-                sb.AppendLine($"Date: {DateTime.Now:dd/MM/yyyy HH:mm}");
-                sb.AppendLine("------------------------------");
-                sb.AppendLine("Item              Qty");
-                sb.AppendLine("------------------------------");
-
-                foreach (var item in group)
-                {
-                    string line = $"{item.ProductName,-15}{item.Quantity,3}";
-                    sb.AppendLine(line);
-                }
-
-                sb.AppendLine("------------------------------");
-                sb.AppendLine("   --- END OF SLIP ---   ");
-                sb.AppendLine("\x1D\x56\x00"); // ✅ Autocut
-
-                RawPrint(sb.ToString(), printerName);
-            }
-        }*/
-
-
         private void PrintSubcategorySlips(List<Reciept> receiptData, string printerName, RepairOrderDto request)
         {
             // 🔹 Group by SubcategoryId
             var grouped = receiptData.GroupBy(r => r.Subcategoryid);
             string partialPrint = _config.GetValue<string>("AppSettings:PartialPrint");
+            
 
             foreach (var group in grouped)
             {
+                decimal subTotal = 0m;
+
                 var first = group.First();
                 var sb = new StringBuilder();
 
@@ -1369,28 +1245,37 @@ namespace BELEPOS.Helper
                 sb.AppendLine(new string('-', 30));
 
                 // Properly aligned column headers
-                sb.AppendLine("Item".PadRight(22) + "Qty".PadLeft(8));
-                sb.AppendLine(new string('-', 30));
-                decimal subTotal = 0m;
+                //sb.AppendLine("Item".PadRight(22) + "Qty".PadLeft(8));
+                AddLine(sb, "Item".PadRight(25) + "Qty".PadRight(5) + "Total".PadLeft(8));
+                //sb.AppendLine(new string('-', 30));
+                AddSeparator(sb);
+
                 foreach (var item in group)
                 {
-                    // Format item name and quantity with proper alignment
-                    string name = FormatProductName(item.ProductName, 22);
-                    string qty = item.Quantity.ToString().PadLeft(8);
+                    string name = item.ProductName.Length > 25 ?
+                    item.ProductName.Substring(0, 22) + "..." :
+                    item.ProductName.PadRight(25);
+                    string qty = item.Quantity.ToString().PadRight(5);
+                    string priceAmout = item.Total?.ToString("0.00").PadLeft(8);
                     var qty2 = item.Quantity;
                     var unit = Convert.ToDecimal(item.Total, CultureInfo.InvariantCulture);
                     var lineAmt = unit * qty2;
+                    string amt = unit.ToString().PadLeft(8); ;
                     subTotal += lineAmt;
-                    sb.AppendLine(name + qty);
+                    sb.AppendLine(name + qty + amt);
                 }
 
-                sb.AppendLine(new string('-', 30));
-                sb.AppendLine($"{"Subtotal",-27}{subTotal,11:0.00}");
-                sb.AppendLine();
-                sb.Append("\x1B\x69");
-                //sb.AppendLine("   --- END OF SLIP ---   ");
-                /*sb.AppendLine("\x1D\x56\x00");*/ // ✅ Autocut
 
+                AddSeparator(sb);
+
+                decimal total = subTotal;
+                decimal grandTotal = total;
+                
+                //sb.AppendLine(new string('-', 30));
+                sb.AppendLine($"{"Total",-27}{subTotal,11:0.00}");
+                //sb.AppendLine("------------------------------");
+                //sb.AppendLine("   --- END OF SLIP ---   ");
+                sb.AppendLine("\x1D\x56\x00"); // ✅ Autocut
 
                 RawPrint(sb.ToString(), printerName);
             }
@@ -1418,6 +1303,34 @@ namespace BELEPOS.Helper
                 e.Graphics.DrawString(text, new Font("Consolas", 9), Brushes.Black, new PointF(10, 10));
             };
             pd.Print();
+        }
+
+        private void AddLine(StringBuilder sb, string text)
+        {
+            sb.AppendLine(text);
+        }
+
+        private void AddCenteredLine(StringBuilder sb, string text)
+        {
+            if (text.Length > ReceiptWidth)
+            {
+                sb.AppendLine(text);
+                return;
+            }
+
+            int padding = (ReceiptWidth - text.Length) / 2;
+            sb.AppendLine(new string(' ', padding) + text);
+        }
+
+        private void AddSeparator(StringBuilder sb)
+        {
+            sb.AppendLine(new string('-', ReceiptWidth));
+        }
+
+        private string MakeBold(string text)
+        {
+            // Simulate bold text by using uppercase and adding a slight underline effect
+            return text.ToUpper() + "\n" + new string('~', text.Length);
         }
     }
 }
