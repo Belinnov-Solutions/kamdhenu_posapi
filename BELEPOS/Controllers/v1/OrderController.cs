@@ -12,6 +12,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking.Internal;
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Net.Sockets;
 using System.Threading.Tasks;
@@ -1241,57 +1242,61 @@ namespace BELEPOS.Controllers.v1
         #region Daily Sales Report
         [HttpGet("SalesReport")]
         public async Task<IActionResult> GetSalesReport(
-            [FromQuery] DateTime? dateFrom,
-            [FromQuery] DateTime? dateTo,
-            [FromQuery] Guid? categoryId,
-            [FromQuery] string groupBy = "day")
+        [FromQuery] DateTime? dateFrom,
+        [FromQuery] DateTime? dateTo,
+        [FromQuery] Guid? categoryId,
+        [FromQuery] string groupBy = "day")
         {
             try
             {
-                if (dateFrom.HasValue)
-                    dateFrom = DateTime.SpecifyKind(dateFrom.Value, DateTimeKind.Utc);
-                if (dateTo.HasValue)
-                    dateTo = DateTime.SpecifyKind(dateTo.Value, DateTimeKind.Utc);
+                // Match SQL: treat provided dates as UTC; ignore date filter if either is missing
+                if (dateFrom.HasValue) dateFrom = DateTime.SpecifyKind(dateFrom.Value, DateTimeKind.Utc);
+                if (dateTo.HasValue) dateTo = DateTime.SpecifyKind(dateTo.Value, DateTimeKind.Utc);
 
-                var query = _context.RepairOrders
-                    .Include(r => r.RepairOrderParts)
-                    .Where(r => !(r.Delind ?? false) && !(r.Cancelled ?? false));
+            
+                var orders = _context.RepairOrders
+                    .Where(r => !(r.Delind ?? false) && !(r.Cancelled ?? false) && r.CreatedAt != null);
 
                 if (dateFrom.HasValue && dateTo.HasValue)
-                    query = query.Where(r => r.CreatedAt >= dateFrom && r.CreatedAt <= dateTo);
+                    orders = orders.Where(r => r.CreatedAt >= dateFrom && r.CreatedAt <= dateTo);
 
-                if (categoryId.HasValue)
-                {
-                    query = query.Where(r => r.RepairOrderParts
-                        .Any(p => _context.Products
-                            .Where(pr => pr.CategoryId == categoryId.Value)
-                            .Select(pr => pr.Id)
-                            .Contains(p.ProductId ?? Guid.Empty)
-                        ));
-                }
+                // Flatten to parts and JOIN Products, then filter parts by allowed categories.
+                // This ensures sums/counts use ONLY the parts that belong to the chosen categories,
+                // exactly like your SQL.
+                var parts = from r in orders
+                            from p in r.RepairOrderParts
+                            where p.ProductId != null
+                            join pr in _context.Products on p.ProductId!.Value equals pr.Id
+                            where (categoryId == null) || (categoryId != null && pr.CategoryId == categoryId)
+                            select new
+                            {
+                                r.RepairOrderId,
+                                r.CreatedAt,
+                                Part = p,
+                                Product = pr
+                            };
 
                 object reportData;
 
-                switch (groupBy.ToLower())
+                switch (groupBy?.ToLowerInvariant())
                 {
                     case "day":
-                        reportData = await query
-                            .GroupBy(r => r.CreatedAt.Value.Date)
+                        reportData = await parts
+                            .GroupBy(x => x.CreatedAt!.Value.Date)
                             .Select(g => new
                             {
                                 Date = g.Key,
-                                TotalSalesAmount = g.SelectMany(r => r.RepairOrderParts).Sum(p => p.Total ?? 0m),
-                                ItemsSold = g.SelectMany(r => r.RepairOrderParts).Sum(p => (int?)p.Quantity ?? 0),
-                                Orders = g.Count(),
-
-                                Products = g.SelectMany(r => r.RepairOrderParts)
-                                    .GroupBy(p => new { p.ProductId, p.ProductName })
+                                TotalSalesAmount = g.Sum(x => x.Part.Total ?? 0m),
+                                ItemsSold = g.Sum(x => (int?)x.Part.Quantity ?? 0),
+                                Orders = g.Select(x => x.RepairOrderId).Distinct().Count(),
+                                Products = g
+                                    .GroupBy(x => new { x.Part.ProductId, x.Part.ProductName })
                                     .Select(pg => new
                                     {
-                                        pg.Key.ProductId,
-                                        pg.Key.ProductName,
-                                        QtySold = pg.Sum(x => (int?)x.Quantity ?? 0),
-                                        TotalSalesAmount = pg.Sum(x => x.Total ?? 0m)
+                                        ProductId = pg.Key.ProductId,
+                                        ProductName = pg.Key.ProductName,
+                                        QtySold = pg.Sum(x => (int?)x.Part.Quantity ?? 0),
+                                        TotalSalesAmount = pg.Sum(x => x.Part.Total ?? 0m)
                                     })
                                     .OrderByDescending(x => x.TotalSalesAmount)
                                     .ToList()
@@ -1301,31 +1306,31 @@ namespace BELEPOS.Controllers.v1
                         break;
 
                     case "week":
-                        var weeklyData = await query.ToListAsync();
-                        reportData = weeklyData
-                            .GroupBy(r =>
+                        // Week-of-year grouping isn’t SQL-translatable in EF reliably; do it in-memory
+                        var weekParts = await parts.ToListAsync();
+                        var cal = CultureInfo.InvariantCulture.Calendar;
+
+                        reportData = weekParts
+                            .GroupBy(x =>
                             {
-                                var cal = System.Globalization.CultureInfo.InvariantCulture.Calendar;
-                                var week = cal.GetWeekOfYear(r.CreatedAt.Value,
-                                    System.Globalization.CalendarWeekRule.FirstFourDayWeek,
-                                    DayOfWeek.Monday);
-                                return new { Year = r.CreatedAt.Value.Year, Week = week };
+                                var dt = x.CreatedAt!.Value;
+                                var week = cal.GetWeekOfYear(dt, CalendarWeekRule.FirstFourDayWeek, DayOfWeek.Monday);
+                                return new { dt.Year, Week = week };
                             })
                             .Select(g => new
                             {
-                                Week = g.Key.Year + "-W" + g.Key.Week,
-                                TotalSalesAmount = g.SelectMany(r => r.RepairOrderParts).Sum(p => p.Total ?? 0m),
-                                ItemsSold = g.SelectMany(r => r.RepairOrderParts).Sum(p => (int?)p.Quantity ?? 0),
-                                Orders = g.Count(),
-
-                                Products = g.SelectMany(r => r.RepairOrderParts)
-                                    .GroupBy(p => new { p.ProductId, p.ProductName })
+                                Week = $"{g.Key.Year}-W{g.Key.Week}",
+                                TotalSalesAmount = g.Sum(x => x.Part.Total ?? 0m),
+                                ItemsSold = g.Sum(x => (int?)x.Part.Quantity ?? 0),
+                                Orders = g.Select(x => x.RepairOrderId).Distinct().Count(),
+                                Products = g
+                                    .GroupBy(x => new { x.Part.ProductId, x.Part.ProductName })
                                     .Select(pg => new
                                     {
-                                        pg.Key.ProductId,
-                                        pg.Key.ProductName,
-                                        QtySold = pg.Sum(x => (int?)x.Quantity ?? 0),
-                                        TotalSalesAmount = pg.Sum(x => x.Total ?? 0m)
+                                        ProductId = pg.Key.ProductId,
+                                        ProductName = pg.Key.ProductName,
+                                        QtySold = pg.Sum(x => (int?)x.Part.Quantity ?? 0),
+                                        TotalSalesAmount = pg.Sum(x => x.Part.Total ?? 0m)
                                     })
                                     .OrderByDescending(x => x.TotalSalesAmount)
                                     .ToList()
@@ -1335,23 +1340,22 @@ namespace BELEPOS.Controllers.v1
                         break;
 
                     case "month":
-                        reportData = await query
-                            .GroupBy(r => new { r.CreatedAt.Value.Year, r.CreatedAt.Value.Month })
+                        reportData = await parts
+                            .GroupBy(x => new { x.CreatedAt!.Value.Year, x.CreatedAt!.Value.Month })
                             .Select(g => new
                             {
                                 Month = g.Key.Year + "-" + g.Key.Month,
-                                TotalSalesAmount = g.SelectMany(r => r.RepairOrderParts).Sum(p => p.Total ?? 0m),
-                                ItemsSold = g.SelectMany(r => r.RepairOrderParts).Sum(p => (int?)p.Quantity ?? 0),
-                                Orders = g.Count(),
-
-                                Products = g.SelectMany(r => r.RepairOrderParts)
-                                    .GroupBy(p => new { p.ProductId, p.ProductName })
+                                TotalSalesAmount = g.Sum(x => x.Part.Total ?? 0m),
+                                ItemsSold = g.Sum(x => (int?)x.Part.Quantity ?? 0),
+                                Orders = g.Select(x => x.RepairOrderId).Distinct().Count(),
+                                Products = g
+                                    .GroupBy(x => new { x.Part.ProductId, x.Part.ProductName })
                                     .Select(pg => new
                                     {
-                                        pg.Key.ProductId,
-                                        pg.Key.ProductName,
-                                        QtySold = pg.Sum(x => (int?)x.Quantity ?? 0),
-                                        TotalSalesAmount = pg.Sum(x => x.Total ?? 0m)
+                                        ProductId = pg.Key.ProductId,
+                                        ProductName = pg.Key.ProductName,
+                                        QtySold = pg.Sum(x => (int?)x.Part.Quantity ?? 0),
+                                        TotalSalesAmount = pg.Sum(x => x.Part.Total ?? 0m)
                                     })
                                     .OrderByDescending(x => x.TotalSalesAmount)
                                     .ToList()
