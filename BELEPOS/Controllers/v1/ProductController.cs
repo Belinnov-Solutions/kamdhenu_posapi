@@ -601,8 +601,8 @@ namespace BELEPOS.Controllers.v1
 
                 bool isTicketPrint = _config.GetValue<bool>("AppSettings:IsTicketPrint");
                 bool isBillPrint = _config.GetValue<bool>("AppSettings:IsBillPrint");
-                bool gst = _config.GetValue<bool>("AppSettings:GST");
-                bool partialPrint = _config.GetValue<bool>("AppSettings:PartialPrint");
+                var gst = _config.GetValue<string>("AppSettings:GST");
+                var partialPrint = _config.GetValue<string>("AppSettings:PartialPrint");
 
                 return Ok(new
                 {
