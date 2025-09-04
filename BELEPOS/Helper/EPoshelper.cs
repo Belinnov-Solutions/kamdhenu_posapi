@@ -7,6 +7,7 @@ using Razor.Templating.Core;
 using System.Drawing;
 using System.Drawing.Printing;
 using System.Drawing.Printing;
+using System.Globalization;
 using System.Net;
 using System.Net.Mail;
 using System.Text;
@@ -1370,19 +1371,26 @@ namespace BELEPOS.Helper
                 // Properly aligned column headers
                 sb.AppendLine("Item".PadRight(22) + "Qty".PadLeft(8));
                 sb.AppendLine(new string('-', 30));
-
+                decimal subTotal = 0m;
                 foreach (var item in group)
                 {
                     // Format item name and quantity with proper alignment
                     string name = FormatProductName(item.ProductName, 22);
                     string qty = item.Quantity.ToString().PadLeft(8);
-
+                    var qty2 = item.Quantity;
+                    var unit = Convert.ToDecimal(item.Total, CultureInfo.InvariantCulture);
+                    var lineAmt = unit * qty2;
+                    subTotal += lineAmt;
                     sb.AppendLine(name + qty);
                 }
 
                 sb.AppendLine(new string('-', 30));
+                sb.AppendLine($"{"Subtotal",-27}{subTotal,11:0.00}");
+                sb.AppendLine();
+                sb.Append("\x1B\x69");
                 //sb.AppendLine("   --- END OF SLIP ---   ");
-                sb.AppendLine("\x1D\x56\x00"); // ✅ Autocut
+                /*sb.AppendLine("\x1D\x56\x00");*/ // ✅ Autocut
+
 
                 RawPrint(sb.ToString(), printerName);
             }
