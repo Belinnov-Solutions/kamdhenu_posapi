@@ -601,6 +601,8 @@ namespace BELEPOS.Controllers.v1
 
                 bool isTicketPrint = _config.GetValue<bool>("AppSettings:IsTicketPrint");
                 bool isBillPrint = _config.GetValue<bool>("AppSettings:IsBillPrint");
+                bool gst = _config.GetValue<bool>("AppSettings:GST");
+                bool partialPrint = _config.GetValue<bool>("AppSettings:PartialPrint");
 
                 return Ok(new
                 {
@@ -616,7 +618,10 @@ namespace BELEPOS.Controllers.v1
                         technicians,
                         stores,
                         isTicketPrint,  
-                        isBillPrint
+                        isBillPrint,
+                        gst,
+                        partialPrint
+
                     }
                 });
             }

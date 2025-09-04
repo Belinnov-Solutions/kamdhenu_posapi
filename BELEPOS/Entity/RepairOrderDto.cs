@@ -36,6 +36,10 @@ namespace BELEPOS.Entity
         public decimal? DiscountValue { get; set; } = 0;
         public decimal? TaxPercent { get; set; } = 0;
 
+        public decimal? TaxAmount { get; set; } = 0;
+
+        public decimal? SubTotal { get; set; } = 0;
+
         public decimal? TotalAmount { get; set; }
 
         public RepairChecklistDto? ChecklistResponses { get; set; }

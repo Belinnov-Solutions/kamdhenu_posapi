@@ -129,7 +129,8 @@ namespace BELEPOS
 
             app.UseSwaggerUI(options =>
             {
-                var basePath = app.Environment.IsDevelopment() ? string.Empty : "https://eposapi.belinnov.in"; // adjust as needed
+                //var basePath = app.Environment.IsDevelopment() ? string.Empty : "https://eposapi.belinnov.in"; // adjust as needed
+                var basePath = app.Environment.IsDevelopment() ? string.Empty : "http://localhost/BELEPOSAPI"; // adjust as needed
 
                 foreach (var description in provider.ApiVersionDescriptions)
                 {

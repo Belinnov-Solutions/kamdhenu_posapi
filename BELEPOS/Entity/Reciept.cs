@@ -20,7 +20,7 @@
 
         public string? Tokennumber { get; set; }
 
-        //public Guid? Subcategoryid { get; set; }
-        public String? CategorrName { get; set; }
+        public Guid? Subcategoryid { get; set; }
+        public String? CategoryName { get; set; }
     }
 }

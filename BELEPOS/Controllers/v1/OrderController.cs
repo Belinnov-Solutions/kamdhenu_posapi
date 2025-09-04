@@ -625,7 +625,7 @@ namespace BELEPOS.Controllers.v1
         [HttpPost("ConfirmOrder")]
         public async Task<IActionResult> ConfirmOrder([FromBody] RepairOrderDto request)
         {
-            bool printerName = _config.GetValue<bool>("AppSettings:EPSON TM-T82 Receipt");
+            string printerName = _config.GetValue<string>("AppSettings:PrinterName");
 
             if (!await _eposHelper.StoreExists(request.StoreId))
                 return BadRequest("Store not found or inactive");
@@ -690,7 +690,11 @@ namespace BELEPOS.Controllers.v1
                 await _eposHelper.SaveChecklistResponses(repairOrderId, request);
 
                 //  await _eposHelper.SendRepairTicketEmail(ticketNo, repairStatus, request);
-                await _eposHelper.PrintReceiptAsync(repairOrderId, printerName.ToString());
+                //await _eposHelper.PrintReceiptAsync(repairOrderId, printerName.ToString());
+
+
+                await _eposHelper.PrintReceiptAsync(repairOrderId, printerName.ToString(), request);
+
                 await transaction.CommitAsync();
                 return Ok(new
                 {
