@@ -628,6 +628,7 @@ namespace BELEPOS.Controllers.v1
         {
             string printerName = _config.GetValue<string>("AppSettings:PrinterName");
 
+
             if (!await _eposHelper.StoreExists(request.StoreId))
                 return BadRequest("Store not found or inactive");
 

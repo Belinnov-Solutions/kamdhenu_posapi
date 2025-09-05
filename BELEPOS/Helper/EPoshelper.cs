@@ -1078,6 +1078,9 @@ namespace BELEPOS.Helper
 
         public async Task PrintReceiptAsync(Guid repairOrderId, string printerName, RepairOrderDto request)
         {
+            bool isTicketPrint = _config.GetValue<bool>("AppSettings:IsTicketPrint");
+            bool isBillPrint = _config.GetValue<bool>("AppSettings:IsBillPrint");
+
             var receiptData = await (
                 from ro in _context.RepairOrders
                 join s in _context.Stores on ro.StoreId equals s.Id
@@ -1114,11 +1117,18 @@ namespace BELEPOS.Helper
             if (!receiptData.Any())
                 return;
 
+            if (isBillPrint)
+            {
+                PrintCustomerReceipt(receiptData, printerName, request);
+            }
             // ✅ Customer bill
-            PrintCustomerReceipt(receiptData, printerName, request);
 
+            if (isTicketPrint)
+            {
+                PrintSubcategorySlips(receiptData, printerName, request);
+            }
             // ✅ Subcategory slips
-            PrintSubcategorySlips(receiptData, printerName, request);
+            //PrintSubcategorySlips(receiptData, printerName, request);
         }
 
         private void PrintCustomerReceipt(List<Reciept> receiptData, string printerName, RepairOrderDto request)
