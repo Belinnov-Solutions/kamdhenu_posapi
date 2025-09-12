@@ -21,6 +21,7 @@
         public string? Tokennumber { get; set; }
 
         public Guid? Subcategoryid { get; set; }
+        public Guid CategoryId { get; set; }
         public String? CategoryName { get; set; }
     }
 }

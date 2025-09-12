@@ -1125,7 +1125,7 @@ namespace BELEPOS.Helper
 
             if (isTicketPrint)
             {
-                PrintSubcategorySlips(receiptData, printerName, request);
+                PrintCategorySlips(receiptData, printerName, request);
             }
             // ✅ Subcategory slips
             //PrintSubcategorySlips(receiptData, printerName, request);
@@ -1221,14 +1221,100 @@ namespace BELEPOS.Helper
             //AddCenteredLine(sb, "THANK YOU, VISIT AGAIN!");
 
             //return sb.ToString();
-            RawPrint(sb.ToString(), printerName);
+            //RawPrint(sb.ToString(), printerName);
 
 
         }
-    
+        private void PrintCategorySlips(List<Reciept> receiptData, string printerName, RepairOrderDto request)
+        {
+            // 🔹 Map subcategory → category
+            var subToCat = _context.SubCategories
+                                   .ToDictionary(s => s.Subcategoryid, s => s.Categoryid);
+
+            // 🔹 Map category → category name
+            var catNames = _context.Categories
+                                   .ToDictionary(c => c.Categoryid, c => c.CategoryName);
+
+            // 🔹 Enrich receipt data with CategoryId + CategoryName
+            foreach (var r in receiptData)
+            {
+                if (r.Subcategoryid != null && subToCat.TryGetValue(r.Subcategoryid.Value, out var catId))
+                {
+                    r.CategoryId = catId;
+                    r.CategoryName = catNames.TryGetValue(catId, out var catName) ? catName : "Unknown";
+                }
+                else
+                {
+                    r.CategoryId = Guid.Empty;
+                    r.CategoryName = "Uncategorized";
+                }
+            }
+
+            // 🔹 Group by CategoryId (one slip per category)
+            var groups = receiptData.GroupBy(r => r.CategoryId);
+            string partialPrint = _config.GetValue<string>("AppSettings:PartialPrint");
+
+            foreach (var group in groups)
+            {
+                decimal slipTotal = 0m;
+                var first = group.First();
+                var sb = new StringBuilder();
+
+                // ✅ Order number (only once if partial print is false)
+                if (partialPrint == "false")
+                    sb.AppendLine($"Order #: {first.OrderNumber}");
+
+                // ✅ Token Number
+                sb.AppendLine($"Order #: {first.Tokennumber}");
+
+                // ✅ Compute total for this category
+                foreach (var item in group)
+                {
+                    slipTotal += (item.Total ?? 0) * item.Quantity;
+                }
+
+                // ✅ Show slip total immediately below token no
+                sb.AppendLine($"Order Total: {slipTotal:0.00}");
+
+                // ✅ Category Name
+                sb.AppendLine($"Counter: {first.CategoryName}");
+
+                sb.AppendLine($"Date: {DateTime.Now:dd/MM/yyyy HH:mm}");
+                sb.AppendLine(new string('-', 32));
+
+                // ✅ Table header
+                AddLine(sb, "Item".PadRight(25) + "Qty".PadRight(5) + "Total".PadLeft(8));
+                AddSeparator(sb);
+
+                // ✅ Print each item
+                foreach (var item in group)
+                {
+                    string name = item.ProductName.Length > 25
+                        ? item.ProductName.Substring(0, 22) + "..."
+                        : item.ProductName.PadRight(25);
+
+                    string qty = item.Quantity.ToString().PadRight(5);
+
+                    decimal unitPrice = (item.Total ?? 0);
+                    decimal lineAmt = unitPrice * item.Quantity;
+
+                    string amt = lineAmt.ToString("0.00").PadLeft(8);
+                    sb.AppendLine(name + qty + amt);
+                }
+
+                AddSeparator(sb);
+
+                // ✅ Total at bottom too
+                sb.AppendLine($"{"Total",-27}{slipTotal,11:0.00}");
+
+                sb.AppendLine("\x1D\x56\x00"); // ✅ Autocut
+
+              //   RawPrint(sb.ToString(), printerName);
+            }
+        }
+
         private void PrintSubcategorySlips(List<Reciept> receiptData, string printerName, RepairOrderDto request)
         {
-            // 🔹 Group by SubcategoryId
             var grouped = receiptData.GroupBy(r => r.Subcategoryid);
             string partialPrint = _config.GetValue<string>("AppSettings:PartialPrint");
             
@@ -1246,8 +1332,15 @@ namespace BELEPOS.Helper
                 }
 
                 // ✅ Token Number (from DB for each subcategory group)
-                sb.AppendLine($"Token #: {first.Tokennumber}");
+                sb.AppendLine($"Order #: {first.Tokennumber}");
+                foreach (var item in group)
+                {
+                    var lineAmt = (item.Total ?? 0) * item.Quantity;
+                    subTotal += lineAmt;
+                }
 
+                // ✅ Print total immediately below token no
+                sb.AppendLine($"Order Total: {subTotal:0.00}");
                 // ✅ Subcategory/Counter name
                 sb.AppendLine($"Counter: {first.CategoryName}");
 
