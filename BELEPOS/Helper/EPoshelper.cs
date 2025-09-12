@@ -1309,7 +1309,7 @@ namespace BELEPOS.Helper
 
                 sb.AppendLine("\x1D\x56\x00"); // ✅ Autocut
 
-              //   RawPrint(sb.ToString(), printerName);
+                RawPrint(sb.ToString(), printerName);
             }
         }
 
