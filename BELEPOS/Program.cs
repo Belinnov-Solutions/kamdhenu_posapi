@@ -107,7 +107,7 @@ namespace BELEPOS
 
             builder.Services.AddSingleton<IAuthorizationPolicyProvider, CustomAuthorizationPolicyProvider>();
             builder.Services.AddSingleton<IAuthorizationHandler, PermissionHandler>();
-
+            builder.Services.AddHostedService<RepairOrderSyncService>();
             builder.Services.AddScoped<JwtService>();
             builder.Services.AddScoped<IClaimsTransformation, RoleHierarchyClaimsTransformer>();
             var app = builder.Build();

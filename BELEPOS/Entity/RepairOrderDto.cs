@@ -83,5 +83,8 @@ namespace BELEPOS.Entity
         public string? TaskName { get; set; }
         public decimal? ServicePrice { get; set; }
         public DateTime CreatedAt { get; set; }
+        public Guid Id { get; set; }
+        public string Status { get; set; } // "Paid", "Pending", etc.
+        public bool WebUpload { get; set; } = false; // Flag to track sync
     }
 }

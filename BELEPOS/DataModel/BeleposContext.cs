@@ -67,6 +67,8 @@ public partial class BeleposContext : DbContext
 
     public virtual DbSet<SubCategory> SubCategories { get; set; }
 
+    public virtual DbSet<SyncLog> SyncLogs { get; set; }
+
     public virtual DbSet<TaskType> TaskTypes { get; set; }
 
     public virtual DbSet<Tenant> Tenants { get; set; }
@@ -733,6 +735,7 @@ public partial class BeleposContext : DbContext
                 .HasMaxLength(50)
                 .HasDefaultValueSql("'Pending'::character varying")
                 .HasColumnName("repair_status");
+            entity.Property(e => e.Status).HasMaxLength(100);
             entity.Property(e => e.StoreId).HasColumnName("store_id");
             entity.Property(e => e.TaxPercent)
                 .HasPrecision(5, 2)
@@ -747,6 +750,7 @@ public partial class BeleposContext : DbContext
             entity.Property(e => e.UserId)
                 .HasDefaultValueSql("gen_random_uuid()")
                 .HasColumnName("user_id");
+            entity.Property(e => e.WebUpload).HasDefaultValue(false);
         });
 
         modelBuilder.Entity<RepairOrderPart>(entity =>
@@ -1019,6 +1023,18 @@ public partial class BeleposContext : DbContext
                 .HasMaxLength(100)
                 .HasColumnName("name");
             entity.Property(e => e.StoreId).HasColumnName("store_id");
+        });
+
+        modelBuilder.Entity<SyncLog>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("SyncLogs_pkey");
+
+            entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()");
+            entity.Property(e => e.CreatedAt)
+                .HasDefaultValueSql("now()")
+                .HasColumnType("timestamp without time zone");
+            entity.Property(e => e.Entity).HasMaxLength(100);
+            entity.Property(e => e.Status).HasMaxLength(50);
         });
 
         modelBuilder.Entity<TaskType>(entity =>

@@ -955,17 +955,31 @@ namespace BELEPOS.Helper
         #endregion
 
         #region Status
+        //public string DetermineRepairStatus(RepairOrderDto request, string? currentStatus = null)
+        //{
+        //    // If it's already Fixed and final submit is true → mark as Completed
+        //    if (currentStatus == "Fixed" && request.IsFinalSubmit == true)
+        //        return "Completed";
+
+
+
+        //    // If final submit is true → mark as Fixed
+        //    if (request.IsFinalSubmit == true)
+        //        return "Fixed";
+
+        //    // If technician assigned → mark as In Process
+        //    if (request.Tickets?.TechnicianId != null && request.Tickets.TechnicianId != Guid.Empty)
+        //        return "In Process";
+
+        //    // Default → Open
+
+        //    return "Open";
+        //}
         public string DetermineRepairStatus(RepairOrderDto request, string? currentStatus = null)
         {
-            // If it's already Fixed and final submit is true → mark as Completed
-            if (currentStatus == "Fixed" && request.IsFinalSubmit == true)
-                return "Completed";
-
-
-
-            // If final submit is true → mark as Fixed
+            // If final submit is true → mark as Paid
             if (request.IsFinalSubmit == true)
-                return "Fixed";
+                return "Paid";
 
             // If technician assigned → mark as In Process
             if (request.Tickets?.TechnicianId != null && request.Tickets.TechnicianId != Guid.Empty)
@@ -1155,8 +1169,9 @@ namespace BELEPOS.Helper
             
             //AddLine(sb, $"Customer: {receipt.CustomerName}");
             AddLine(sb, $"Date: {DateTime.Now:dd/MM/yyyy HH:mm}");
+            
+            sb.AppendLine($"Order #: {receipt.Tokennumber}");
             AddSeparator(sb);
-
             // Column headers
             AddLine(sb, "Item".PadRight(25) + "Qty".PadRight(5) + "Total".PadLeft(8));
             AddSeparator(sb);
@@ -1201,7 +1216,7 @@ namespace BELEPOS.Helper
             decimal grandTotal = request.TotalAmount??0;
 
             // Totals
-            AddLine(sb, "Subtotal:" + subtotal.ToString("0.00").PadLeft(29));
+            //AddLine(sb, "Subtotal:" + subtotal.ToString("0.00").PadLeft(29));
             if (partialPrint == "false")
             {
                 //AddLine(sb, "Discount:" + discount.ToString("0.00").PadLeft(29));
@@ -1221,7 +1236,7 @@ namespace BELEPOS.Helper
             //AddCenteredLine(sb, "THANK YOU, VISIT AGAIN!");
 
             //return sb.ToString();
-            //RawPrint(sb.ToString(), printerName);
+            RawPrint(sb.ToString(), printerName);
 
 
         }
@@ -1277,13 +1292,13 @@ namespace BELEPOS.Helper
                 sb.AppendLine($"Order Total: {slipTotal:0.00}");
 
                 // ✅ Category Name
-                sb.AppendLine($"Counter: {first.CategoryName}");
+                //sb.AppendLine($"Counter: {first.CategoryName}");
 
                 sb.AppendLine($"Date: {DateTime.Now:dd/MM/yyyy HH:mm}");
                 sb.AppendLine(new string('-', 32));
 
                 // ✅ Table header
-                AddLine(sb, "Item".PadRight(25) + "Qty".PadRight(5) + "Total".PadLeft(8));
+                AddLine(sb, "Item".PadRight(30) + "Qty".PadRight(8) /*+ "Total".PadLeft(8)*/);
                 AddSeparator(sb);
 
                 // ✅ Print each item
@@ -1291,21 +1306,21 @@ namespace BELEPOS.Helper
                 {
                     string name = item.ProductName.Length > 25
                         ? item.ProductName.Substring(0, 22) + "..."
-                        : item.ProductName.PadRight(25);
+                        : item.ProductName.PadRight(30);
 
-                    string qty = item.Quantity.ToString().PadRight(5);
+                    string qty = item.Quantity.ToString().PadRight(8);
 
                     decimal unitPrice = (item.Total ?? 0);
                     decimal lineAmt = unitPrice * item.Quantity;
 
                     string amt = lineAmt.ToString("0.00").PadLeft(8);
-                    sb.AppendLine(name + qty + amt);
+                    sb.AppendLine(name + qty/* + amt*/);
                 }
 
                 AddSeparator(sb);
 
                 // ✅ Total at bottom too
-                sb.AppendLine($"{"Total",-27}{slipTotal,11:0.00}");
+               // sb.AppendLine($"{"Total",-27}{slipTotal,11:0.00}");
 
                 sb.AppendLine("\x1D\x56\x00"); // ✅ Autocut
 

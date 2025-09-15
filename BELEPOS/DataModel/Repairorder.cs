@@ -51,6 +51,10 @@ public partial class RepairOrder
 
     public decimal? TaxPercent { get; set; }
 
+    public string? Status { get; set; }
+
+    public bool WebUpload { get; set; }
+
     public virtual ICollection<ChecklistResponse> ChecklistResponses { get; set; } = new List<ChecklistResponse>();
 
     public virtual ICollection<RepairOrderPart> RepairOrderParts { get; set; } = new List<RepairOrderPart>();

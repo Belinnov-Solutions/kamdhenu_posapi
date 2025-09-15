@@ -244,6 +244,16 @@ namespace BELEPOS.Controllers.v1
 
         #endregion
 
+        [HttpGet("SyncLogs")]
+        public async Task<IActionResult> GetSyncLogs([FromQuery] int top = 50)
+        {
+            var logs = await _context.SyncLogs
+                .OrderByDescending(l => l.CreatedAt)
+                .Take(top)
+                .ToListAsync();
+
+            return Ok(logs);
+        }
 
 
         //[Authorize(Policy = "user.manage")]
