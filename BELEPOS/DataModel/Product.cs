@@ -67,6 +67,8 @@ public partial class Product
 
     public Guid? Vendorid { get; set; }
 
+    public bool? WebUpload { get; set; }
+
     public virtual Model? Model { get; set; }
 
     public virtual ICollection<OrderItem> OrderItems { get; set; } = new List<OrderItem>();
