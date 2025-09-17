@@ -1,6 +1,7 @@
 ﻿using BELEPOS.DataModel;
 using BELEPOS.Entity;
 using DocumentFormat.OpenXml.Bibliography;
+using DocumentFormat.OpenXml.Office2016.Excel;
 using Microsoft.EntityFrameworkCore;
 using Razor.Templating.Core;
 using Razor.Templating.Core;
@@ -663,7 +664,7 @@ namespace BELEPOS.Helper
         }*/
 
 
-        public async Task SaveParts(Guid repairOrderId, RepairOrderDto request)
+        /*public async Task SaveParts(Guid repairOrderId, RepairOrderDto request)
         {
             try
             {
@@ -745,7 +746,111 @@ namespace BELEPOS.Helper
             {
                 throw;
             }
+        }*/
+
+
+        public async Task SaveParts(Guid repairOrderId, RepairOrderDto request)
+        {
+            try
+            {
+                if (request.Parts?.Any() != true) return;
+
+                var existingParts = await _context.RepairOrderParts
+                    .Where(p => p.RepairOrderId == repairOrderId)
+                    .ToListAsync();
+
+                // ✅ Reset token counter daily
+                var today = DateTime.Now.Date;
+                var tomorrow = today.AddDays(1);
+
+                // ✅ Get all tokens created today
+                var todayTokens = await _context.RepairOrderParts
+                    .Where(p => p.CreatedAt >= today && p.CreatedAt < tomorrow)
+                    .Select(p => p.Tokennumber)
+                    .ToListAsync();
+
+                if (todayTokens == null || !todayTokens.Any())
+                {
+                    todayTokens = new List<string>();
+                }
+
+                // ✅ Parse numeric tokens
+                int maxToken = todayTokens
+                    .Select(t => int.TryParse(t, out int n) ? n : 0)
+                    .DefaultIfEmpty(0)
+                    .Max();
+
+                int tokenCounter = maxToken == 0 ? 1 : maxToken + 1;
+
+                // ✅ Group parts by SubcategoryId
+                /*var groupedParts = request.Parts
+                    .GroupBy(p => p.SubcategoryId)
+                    .OrderBy(g => g.Key);*/
+
+                // Build a dictionary: SubcategoryId -> CategoryId
+                var subcategoryMap = await _context.SubCategories
+                    .ToDictionaryAsync(s => s.Subcategoryid, s => s.Categoryid);
+
+                var groupedParts = request.Parts
+                                .GroupBy(p => subcategoryMap.ContainsKey(p.SubcategoryId)
+                  ? subcategoryMap[p.SubcategoryId]
+                  : Guid.Empty)
+    .           OrderBy(g => g.Key);
+
+
+
+
+
+                foreach (var group in groupedParts)
+                {
+                    // ✅ One token per subcategory group
+                    string token = tokenCounter.ToString();
+
+                    foreach (var part in group)
+                    {
+                        var existingPart = existingParts.FirstOrDefault(p => p.ProductId == part.ProductId);
+                        if (existingPart != null)
+                        {
+                            existingPart.ProductName = part.ProductName;
+                            existingPart.Quantity = part.Quantity;
+                            existingPart.Price = part.Price;
+                            existingPart.Total = part.Price * part.Quantity;
+                            existingPart.ProductType = request.ProductType;
+                            existingPart.Tokennumber = token; // ✅ same for category
+                            existingPart.Subcategoryid = part.SubcategoryId;
+                            existingPart.UpdatedAt = DateTime.Now;
+                        }
+                        else
+                        {
+                            _context.RepairOrderParts.Add(new RepairOrderPart
+                            {
+                                Id = Guid.NewGuid(),
+                                RepairOrderId = repairOrderId,
+                                ProductId = part.ProductId,
+                                ProductName = part.ProductName,
+                                Quantity = part.Quantity,
+                                Price = part.Price,
+                                Total = part.Price * part.Quantity,
+                                ProductType = request.ProductType,
+                                Tokennumber = token, // ✅ same for category
+                                Subcategoryid = part.SubcategoryId,
+                                CreatedAt = DateTime.Now
+                            });
+                        }
+                    }
+
+                    // ✅ After finishing one subcategory, increment token
+                    tokenCounter++;
+                }
+
+                await _context.SaveChangesAsync();
+            }
+            catch (Exception)
+            {
+                throw;
+            }
         }
+
 
 
 
@@ -843,58 +948,9 @@ namespace BELEPOS.Helper
             return discountedPrice;
 
 
-
-
-
         }
 
-        #region send repair ticket email job
-        // --- enqueue Repair job (non-blocking) ---
-        /*internal void SendRepairTicketEmail(Customer? customer, string ticketNo, string repairStatus, RepairOrderDto request)
-        {
-            _emailQueue.QueueEmail(new EmailJob
-            {
-                NotificationTypeCode = "TICKET_CREATED", // match DB template NotificationTypeCode
-                RecipientEmail = customer?.Email ?? string.Empty, // From DB or request
-                RecipientName = customer?.CustomerName ?? string.Empty,
-
-                Placeholders = new Dictionary<string, string>
-             {
-                { "ticketid", ticketNo },
-                    { "status", repairStatus },
-                { "datecreated", (request.Tickets?.DueDate ?? DateTime.UtcNow).ToString("dd-MMM-yyyy") },
-                { "customername", customer.CustomerName ?? string.Empty },
-                {"companyname", "NearNerd" }
-            }
-            });
-        }*/
-
-
-
-        /// ////////////////////////// Email to customer if tweaks needed ///////////////////////////
-
-        //public async Task SendRepairTicketEmail(string ticketNo, string repairStatus, RepairOrderDto request)
-        //{
-        //    var customer = await _context.Customers
-        //        .FirstOrDefaultAsync(c => c.CustomerId == request.CustomerId && c.Delind == false);
-
-        //    _emailQueue.QueueEmail(new EmailJob
-        //    {
-        //        NotificationTypeCode = "TICKET_CREATED",
-        //        RecipientEmail = customer?.Email ?? string.Empty,
-        //        RecipientName = customer?.CustomerName ?? string.Empty,
-        //        Placeholders = new Dictionary<string, string>
-        //{
-        //    { "ticketid", ticketNo },
-        //    { "status", repairStatus },
-        //    { "duedate", (request.Tickets?.DueDate ?? DateTime.UtcNow).ToString("dd-MMM-yyyy") },
-        //    { "customername", customer?.CustomerName ?? string.Empty },
-        //    { "companyname", "NearNerd" }
-        //}
-        //    });
-        //}
-
-        #endregion
+        
 
 
         #region Send Email Update to store manager if stock deducted + stock reduction logic
@@ -954,27 +1010,8 @@ namespace BELEPOS.Helper
         }
         #endregion
 
-        #region Status
-        //public string DetermineRepairStatus(RepairOrderDto request, string? currentStatus = null)
-        //{
-        //    // If it's already Fixed and final submit is true → mark as Completed
-        //    if (currentStatus == "Fixed" && request.IsFinalSubmit == true)
-        //        return "Completed";
+        
 
-
-
-        //    // If final submit is true → mark as Fixed
-        //    if (request.IsFinalSubmit == true)
-        //        return "Fixed";
-
-        //    // If technician assigned → mark as In Process
-        //    if (request.Tickets?.TechnicianId != null && request.Tickets.TechnicianId != Guid.Empty)
-        //        return "In Process";
-
-        //    // Default → Open
-
-        //    return "Open";
-        //}
         public string DetermineRepairStatus(RepairOrderDto request, string? currentStatus = null)
         {
             // If final submit is true → mark as Paid
@@ -989,105 +1026,7 @@ namespace BELEPOS.Helper
             return "Open";
         }
 
-        #endregion
-
-
-        /////////////////////////////////PRINT///////////////////////////////////////////////////
-        ///
-
-        /*public async Task PrintReceiptAsync(Guid repairOrderId, string printerName)
-        {
-            var receiptData = await (
-                from ro in _context.RepairOrders
-                join s in _context.Stores on ro.StoreId equals s.Id
-                join c in _context.Customers on ro.CustomerId equals c.CustomerId into custJoin
-                from c in custJoin.DefaultIfEmpty()
-                join p in _context.RepairOrderParts on ro.RepairOrderId equals p.RepairOrderId
-                join pc in _context.SubCategories on p.Subcategoryid equals pc.Subcategoryid into pcJoin
-                from pc in pcJoin.DefaultIfEmpty()
-                where ro.RepairOrderId == repairOrderId
-                select new Reciept
-                {
-                    OrderNumber = ro.OrderNumber,
-                    TotalAmount = ro.TotalAmount,
-                    TaxPercent = ro.TaxPercent,
-                    DiscountType = ro.DiscountType,
-                    DiscountValue = ro.DiscountValue,
-                    StoreName = s.Name,
-                    StoreAddress = s.Address,
-                    StorePhone = s.Phone,
-                    CustomerName = c != null ? c.CustomerName : "Walk-in",
-                    CustomerPhone = c != null ? c.Phone : "",
-                    ProductName = p.ProductName,
-                    ProductType = p.ProductType,
-                    Quantity = p.Quantity,
-                    Price = p.Price,
-                    Total = p.Total,
-                    Tokennumber = p.Tokennumber,
-                    Subcategoryid = p.Subcategoryid,
-                    CategoryName = pc != null ? pc.Name : string.Empty
-
-                }
-            ).ToListAsync();
-
-            if (!receiptData.Any())
-                return;
-
-            // ✅ Customer bill
-            PrintCustomerReceipt(receiptData, printerName);
-
-            // ✅ Subcategory slips
-            PrintSubcategorySlips(receiptData, printerName);
-        }*/
-
-
-
-
-
-        /*public async Task PrintReceiptAsync(Guid repairOrderId, string printerName)
-        {
-            var receiptData = await (
-                from ro in _context.RepairOrders
-                join s in _context.Stores on ro.StoreId equals s.Id
-                join c in _context.Customers on ro.CustomerId equals c.CustomerId into custJoin
-                from c in custJoin.DefaultIfEmpty()
-                join p in _context.RepairOrderParts on ro.RepairOrderId equals p.RepairOrderId
-                join pc in _context.SubCategories on p.Subcategoryid equals pc.Subcategoryid into pcJoin
-                from pc in pcJoin.DefaultIfEmpty()
-                where ro.RepairOrderId == repairOrderId
-                select new Reciept
-                {
-                    OrderNumber = ro.OrderNumber,
-                    TotalAmount = ro.TotalAmount,
-                    TaxPercent = ro.TaxPercent,
-                    DiscountType = ro.DiscountType,
-                    DiscountValue = ro.DiscountValue,
-                    StoreName = s.Name,
-                    StoreAddress = s.Address,
-                    StorePhone = s.Phone,
-                    CustomerName = c != null ? c.CustomerName : "Walk-in",
-                    CustomerPhone = c != null ? c.Phone : "",
-                    ProductName = p.ProductName,
-                    ProductType = p.ProductType,
-                    Quantity = p.Quantity,
-                    Price = p.Price,
-                    Total = p.Total,
-                    Tokennumber = p.Tokennumber,
-                    Subcategoryid = p.Subcategoryid,
-                    CategoryName = pc != null ? pc.Name : string.Empty
-
-                }
-            ).ToListAsync();
-
-            if (!receiptData.Any())
-                return;
-
-            // ✅ Customer bill
-            PrintCustomerReceipt(receiptData, printerName);
-
-            // ✅ Subcategory slips
-            PrintSubcategorySlips(receiptData, printerName);
-        }*/
+    
 
 
         public async Task PrintReceiptAsync(Guid repairOrderId, string printerName, RepairOrderDto request)
@@ -1167,10 +1106,11 @@ namespace BELEPOS.Helper
             
             // Order information
             
-            //AddLine(sb, $"Customer: {receipt.CustomerName}");
+            //AddLine(sb, $"Token: {receipt.Tokennumber}");
             AddLine(sb, $"Date: {DateTime.Now:dd/MM/yyyy HH:mm}");
-            
-            sb.AppendLine($"Order #: {receipt.Tokennumber}");
+
+            //sb.AppendLine($"Order #: {receipt.Tokennumber}");
+            sb.AppendLine($"Order #: {receipt.OrderNumber}");
             AddSeparator(sb);
             // Column headers
             AddLine(sb, "Item".PadRight(25) + "Qty".PadRight(5) + "Total".PadLeft(8));
@@ -1240,15 +1180,20 @@ namespace BELEPOS.Helper
 
 
         }
+        
+
+
         private void PrintCategorySlips(List<Reciept> receiptData, string printerName, RepairOrderDto request)
         {
-            // 🔹 Map subcategory → category
+            // 🔹 Build Subcategory → Category map
             var subToCat = _context.SubCategories
-                                   .ToDictionary(s => s.Subcategoryid, s => s.Categoryid);
+                .Where(s => s.Delind == false)
+                .ToDictionary(s => s.Subcategoryid, s => s.Categoryid);
 
-            // 🔹 Map category → category name
+            // 🔹 Build CategoryId → CategoryName map
             var catNames = _context.Categories
-                                   .ToDictionary(c => c.Categoryid, c => c.CategoryName);
+                .Where(c => c.Delind == false)
+                .ToDictionary(c => c.Categoryid, c => c.CategoryName);
 
             // 🔹 Enrich receipt data with CategoryId + CategoryName
             foreach (var r in receiptData)
@@ -1265,68 +1210,66 @@ namespace BELEPOS.Helper
                 }
             }
 
-            // 🔹 Group by CategoryId (one slip per category)
-            var groups = receiptData.GroupBy(r => r.CategoryId);
-            string partialPrint = _config.GetValue<string>("AppSettings:PartialPrint");
+            // ✅ Group dynamically by CategoryId (no hardcoding)
+            var groups = receiptData
+                .GroupBy(r => r.CategoryId);
 
             foreach (var group in groups)
             {
-                decimal slipTotal = 0m;
-                var first = group.First();
-                var sb = new StringBuilder();
+                var categoryName = group.First().CategoryName ?? "Unknown";
+                var items = group.ToList();
 
-                // ✅ Order number (only once if partial print is false)
-                if (partialPrint == "false")
-                    sb.AppendLine($"Order #: {first.OrderNumber}");
-
-                // ✅ Token Number
-                sb.AppendLine($"Order #: {first.Tokennumber}");
-
-                // ✅ Compute total for this category
-                foreach (var item in group)
+                if (items.Any())
                 {
-                    slipTotal += (item.Total ?? 0) * item.Quantity;
+                    PrintSlip(items, printerName, categoryName);
                 }
-
-                // ✅ Show slip total immediately below token no
-                sb.AppendLine($"Order Total: {slipTotal:0.00}");
-
-                // ✅ Category Name
-                //sb.AppendLine($"Counter: {first.CategoryName}");
-
-                sb.AppendLine($"Date: {DateTime.Now:dd/MM/yyyy HH:mm}");
-                sb.AppendLine(new string('-', 32));
-
-                // ✅ Table header
-                AddLine(sb, "Item".PadRight(30) + "Qty".PadRight(8) /*+ "Total".PadLeft(8)*/);
-                AddSeparator(sb);
-
-                // ✅ Print each item
-                foreach (var item in group)
-                {
-                    string name = item.ProductName.Length > 25
-                        ? item.ProductName.Substring(0, 22) + "..."
-                        : item.ProductName.PadRight(30);
-
-                    string qty = item.Quantity.ToString().PadRight(8);
-
-                    decimal unitPrice = (item.Total ?? 0);
-                    decimal lineAmt = unitPrice * item.Quantity;
-
-                    string amt = lineAmt.ToString("0.00").PadLeft(8);
-                    sb.AppendLine(name + qty/* + amt*/);
-                }
-
-                AddSeparator(sb);
-
-                // ✅ Total at bottom too
-               // sb.AppendLine($"{"Total",-27}{slipTotal,11:0.00}");
-
-                sb.AppendLine("\x1D\x56\x00"); // ✅ Autocut
-
-                RawPrint(sb.ToString(), printerName);
             }
         }
+
+
+        private void PrintSlip(List<Reciept> items, string printerName, string slipTitle)
+        {
+            if (items == null || !items.Any()) return;
+
+            decimal slipTotal = 0m;
+            var first = items.First();
+            var sb = new StringBuilder();
+
+            sb.AppendLine($"Token #: {first.Tokennumber}");
+            sb.AppendLine($"Order #: {first.OrderNumber}");
+           // sb.AppendLine($"Slip: {slipTitle}");
+
+            // ✅ Compute slip total
+            foreach (var item in items)
+                slipTotal += (item.Total ?? 0) * item.Quantity;
+
+            sb.AppendLine($"Total: {slipTotal:0.00}");
+            sb.AppendLine($"Date: {DateTime.Now:dd/MM/yyyy HH:mm}");
+            sb.AppendLine(new string('-', 32));
+
+            // ✅ Table header
+            AddLine(sb, "Item".PadRight(25) + "Qty".PadRight(5));
+            AddSeparator(sb);
+
+            foreach (var item in items)
+            {
+                string name = item.ProductName.Length > 20
+                    ? item.ProductName.Substring(0, 20) + "..."
+                    : item.ProductName.PadRight(25);
+
+                string qty = item.Quantity.ToString().PadRight(5);
+
+                sb.AppendLine(name + qty);
+            }
+
+            AddSeparator(sb);
+
+            sb.AppendLine("\x1D\x56\x00"); // ✅ Autocut
+
+            RawPrint(sb.ToString(), printerName);
+        }
+
+
 
         private void PrintSubcategorySlips(List<Reciept> receiptData, string printerName, RepairOrderDto request)
         {
@@ -1347,7 +1290,7 @@ namespace BELEPOS.Helper
                 }
 
                 // ✅ Token Number (from DB for each subcategory group)
-                sb.AppendLine($"Order #: {first.Tokennumber}");
+                sb.AppendLine($"Token #: {first.Tokennumber}");
                 foreach (var item in group)
                 {
                     var lineAmt = (item.Total ?? 0) * item.Quantity;
