@@ -1245,7 +1245,7 @@ namespace BELEPOS.Helper
 
             sb.AppendLine($"Total: {slipTotal:0.00}");
             sb.AppendLine($"Date: {DateTime.Now:dd/MM/yyyy HH:mm}");
-            sb.AppendLine(new string('-', 32));
+            AddSeparator(sb);
 
             // ✅ Table header
             AddLine(sb, "Item".PadRight(25) + "Qty".PadRight(5));
