@@ -20,4 +20,6 @@ public partial class Category
     public DateTime? LastmodifiedAt { get; set; }
 
     public bool? IsVisible { get; set; }
+
+    public bool? WebUpload { get; set; }
 }

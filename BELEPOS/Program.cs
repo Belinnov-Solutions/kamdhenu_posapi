@@ -123,17 +123,10 @@ namespace BELEPOS
             var provider = app.Services.GetRequiredService<IApiVersionDescriptionProvider>();
 
             app.UseSwagger();
+
+
+
             /*app.UseSwaggerUI(options =>
-            {
-                foreach (var description in provider.ApiVersionDescriptions)
-                {
-                    options.SwaggerEndpoint($"/swagger/{description.GroupName}/swagger.json",
-                                            description.GroupName.ToUpperInvariant());
-                }
-            });*/
-
-
-            app.UseSwaggerUI(options =>
             {
                 //var basePath = app.Environment.IsDevelopment() ? string.Empty : "https://eposapi.belinnov.in"; // adjust as needed
                 var basePath = app.Environment.IsDevelopment() ? string.Empty : "http://localhost/eposapi"; // adjust as needed
@@ -145,7 +138,20 @@ namespace BELEPOS
                 }
 
                 options.RoutePrefix = "swagger"; // or "" for root
+            });*/
+
+            app.UseSwaggerUI(options =>
+            {
+                foreach (var description in provider.ApiVersionDescriptions)
+                {
+                    options.SwaggerEndpoint($"/swagger/{description.GroupName}/swagger.json",
+                                            description.GroupName.ToUpperInvariant());
+                }
+
+                // Keep swagger at /swagger (or set RoutePrefix = "" for root)
+                options.RoutePrefix = "swagger";
             });
+
 
 
             app.UseCors("AllowAll");

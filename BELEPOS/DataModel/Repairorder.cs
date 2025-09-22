@@ -55,6 +55,8 @@ public partial class RepairOrder
 
     public bool WebUpload { get; set; }
 
+    public string? OrderType { get; set; }
+
     public virtual ICollection<ChecklistResponse> ChecklistResponses { get; set; } = new List<ChecklistResponse>();
 
     public virtual ICollection<RepairOrderPart> RepairOrderParts { get; set; } = new List<RepairOrderPart>();

@@ -10,6 +10,8 @@ namespace BELEPOS.Entity
         public bool? Paid { get; set; }
         public string? PaymentMethod { get; set; }
 
+        public string? OrderType { get; set; }
+
         public string? RepairStatus { get; set; }
         public Guid? CustomerId { get; set; } = Guid.Empty;
         public Guid UserId { get; set; }

@@ -1240,7 +1240,7 @@ namespace BELEPOS.Controllers.v1
 
         ///////////////////////////////////////////////  Reports ////////////////////////////////////////////////////
 
-        #region Daily Sales Report
+        /*#region Daily Sales Report
         [HttpGet("SalesReport")]
         public async Task<IActionResult> GetSalesReport(
         [FromQuery] DateTime? dateFrom,
@@ -1380,12 +1380,290 @@ namespace BELEPOS.Controllers.v1
                 return StatusCode(500, new { message = "Failed to fetch sales report", error = ex.Message });
             }
         }
+        #endregion*/
+
+
+
+
+        #region Daily Sales Report
+        [HttpGet("SalesReport")]
+        public async Task<IActionResult> GetSalesReport(
+            [FromQuery] DateTime? dateFrom,
+            [FromQuery] DateTime? dateTo,
+            [FromQuery] string groupBy = "day")
+        {
+            try
+            {
+                if (dateFrom.HasValue) dateFrom = DateTime.SpecifyKind(dateFrom.Value, DateTimeKind.Utc);
+                if (dateTo.HasValue) dateTo = DateTime.SpecifyKind(dateTo.Value, DateTimeKind.Utc);
+
+                // Base RepairOrders
+                var orders = _context.RepairOrders
+                    .Where(r => !(r.Delind ?? false) && !(r.Cancelled ?? false) && r.CreatedAt != null);
+
+                if (dateFrom.HasValue && dateTo.HasValue)
+                    orders = orders.Where(r => r.CreatedAt >= dateFrom && r.CreatedAt <= dateTo);
+
+                // Flatten parts + join Products + join Categories
+                var parts = from r in orders
+                            from p in r.RepairOrderParts
+                            where p.ProductId != null && r.Delind==false
+                            join pr in _context.Products on p.ProductId!.Value equals pr.Id
+                            join c in _context.Categories on pr.CategoryId equals c.Categoryid
+                            select new
+                            {
+                                r.RepairOrderId,
+                                r.CreatedAt,
+                                Part = p,
+                                Product = pr,
+                                Category = c
+                            };
+
+                object reportData;
+
+                switch (groupBy?.ToLowerInvariant())
+                {
+                    case "day":
+                        reportData = await parts
+                            .GroupBy(x => x.CreatedAt!.Value.Date)
+                            .Select(g => new
+                            {
+                                Date = g.Key,
+                                TotalSalesAmount = g.Sum(x => x.Part.Total ?? 0m),
+                                ItemsSold = g.Sum(x => (int?)x.Part.Quantity ?? 0),
+                                Orders = g.Select(x => x.RepairOrderId).Distinct().Count(),
+
+                                // Category wise sales summary
+                                Categories = g.GroupBy(x => new { x.Category.Categoryid, x.Category.CategoryName })
+                                    .Select(cg => new
+                                    {
+                                        CategoryId = cg.Key.Categoryid,
+                                        CategoryName = cg.Key.CategoryName,
+                                        TotalSalesAmount = cg.Sum(x => x.Part.Total ?? 0m),
+                                        ItemsSold = cg.Sum(x => (int?)x.Part.Quantity ?? 0)
+                                    })
+                                    .OrderByDescending(x => x.TotalSalesAmount)
+                                    .ToList(),
+
+                                // Product level breakdown
+                                Products = g.GroupBy(x => new { x.Part.ProductId, x.Part.ProductName })
+                                    .Select(pg => new
+                                    {
+                                        ProductId = pg.Key.ProductId,
+                                        ProductName = pg.Key.ProductName,
+                                        QtySold = pg.Sum(x => (int?)x.Part.Quantity ?? 0),
+                                        TotalSalesAmount = pg.Sum(x => x.Part.Total ?? 0m)
+                                    })
+                                    .OrderByDescending(x => x.TotalSalesAmount)
+                                    .ToList()
+                            })
+                            .OrderBy(x => x.Date)
+                            .ToListAsync();
+                        break;
+
+                    case "week":
+                        var weekParts = await parts.ToListAsync();
+                        var cal = CultureInfo.InvariantCulture.Calendar;
+
+                        reportData = weekParts
+                            .GroupBy(x =>
+                            {
+                                var dt = x.CreatedAt!.Value;
+                                var week = cal.GetWeekOfYear(dt, CalendarWeekRule.FirstFourDayWeek, DayOfWeek.Monday);
+                                return new { dt.Year, Week = week };
+                            })
+                            .Select(g => new
+                            {
+                                Week = $"{g.Key.Year}-W{g.Key.Week}",
+                                TotalSalesAmount = g.Sum(x => x.Part.Total ?? 0m),
+                                ItemsSold = g.Sum(x => (int?)x.Part.Quantity ?? 0),
+                                Orders = g.Select(x => x.RepairOrderId).Distinct().Count(),
+
+                                Categories = g.GroupBy(x => new { x.Category.Categoryid, x.Category.CategoryName })
+                                    .Select(cg => new
+                                    {
+                                        CategoryId = cg.Key.Categoryid,
+                                        CategoryName = cg.Key.CategoryName,
+                                        TotalSalesAmount = cg.Sum(x => x.Part.Total ?? 0m),
+                                        ItemsSold = cg.Sum(x => (int?)x.Part.Quantity ?? 0)
+                                    })
+                                    .OrderByDescending(x => x.TotalSalesAmount)
+                                    .ToList(),
+
+                                Products = g.GroupBy(x => new { x.Part.ProductId, x.Part.ProductName })
+                                    .Select(pg => new
+                                    {
+                                        ProductId = pg.Key.ProductId,
+                                        ProductName = pg.Key.ProductName,
+                                        QtySold = pg.Sum(x => (int?)x.Part.Quantity ?? 0),
+                                        TotalSalesAmount = pg.Sum(x => x.Part.Total ?? 0m)
+                                    })
+                                    .OrderByDescending(x => x.TotalSalesAmount)
+                                    .ToList()
+                            })
+                            .OrderBy(x => x.Week)
+                            .ToList();
+                        break;
+
+                    case "month":
+                        reportData = await parts
+                            .GroupBy(x => new { x.CreatedAt!.Value.Year, x.CreatedAt!.Value.Month })
+                            .Select(g => new
+                            {
+                                Month = g.Key.Year + "-" + g.Key.Month,
+                                TotalSalesAmount = g.Sum(x => x.Part.Total ?? 0m),
+                                ItemsSold = g.Sum(x => (int?)x.Part.Quantity ?? 0),
+                                Orders = g.Select(x => x.RepairOrderId).Distinct().Count(),
+
+                                Categories = g.GroupBy(x => new { x.Category.Categoryid, x.Category.CategoryName })
+                                    .Select(cg => new
+                                    {
+                                        CategoryId = cg.Key.Categoryid,
+                                        CategoryName = cg.Key.CategoryName,
+                                        TotalSalesAmount = cg.Sum(x => x.Part.Total ?? 0m),
+                                        ItemsSold = cg.Sum(x => (int?)x.Part.Quantity ?? 0)
+                                    })
+                                    .OrderByDescending(x => x.TotalSalesAmount)
+                                    .ToList(),
+
+                                Products = g.GroupBy(x => new { x.Part.ProductId, x.Part.ProductName })
+                                    .Select(pg => new
+                                    {
+                                        ProductId = pg.Key.ProductId,
+                                        ProductName = pg.Key.ProductName,
+                                        QtySold = pg.Sum(x => (int?)x.Part.Quantity ?? 0),
+                                        TotalSalesAmount = pg.Sum(x => x.Part.Total ?? 0m)
+                                    })
+                                    .OrderByDescending(x => x.TotalSalesAmount)
+                                    .ToList()
+                            })
+                            .OrderBy(x => x.Month)
+                            .ToListAsync();
+                        break;
+
+                    default:
+                        return BadRequest("Invalid groupBy parameter. Use 'day', 'week', or 'month'.");
+                }
+
+                return Ok(new
+                {
+                    filters = new { dateFrom, dateTo, groupBy },
+                    reportData
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Failed to fetch sales report", error = ex.Message });
+            }
+        }
         #endregion
 
 
 
+        [HttpGet("TokenListByCategory")]
+        public async Task<IActionResult> GetTokenListByCategory(
+            [FromQuery] Guid categoryId,
+            [FromQuery] DateTime? dateFrom,
+            [FromQuery] DateTime? dateTo)
+            {
+                try
+                {
+                    if (dateFrom.HasValue) dateFrom = DateTime.SpecifyKind(dateFrom.Value, DateTimeKind.Utc);
+                    if (dateTo.HasValue) dateTo = DateTime.SpecifyKind(dateTo.Value, DateTimeKind.Utc);
+
+                    var orders = _context.RepairOrders
+                        .Where(r => !(r.Delind ?? false) && !(r.Cancelled ?? false) && r.CreatedAt != null);
+
+                    if (dateFrom.HasValue && dateTo.HasValue)
+                        orders = orders.Where(r => r.CreatedAt >= dateFrom && r.CreatedAt <= dateTo);
+
+                    var tokens = await (
+                        from r in orders
+                        from p in r.RepairOrderParts
+                        where p.ProductId != null && !string.IsNullOrEmpty(p.Tokennumber)
+                        join pr in _context.Products on p.ProductId!.Value equals pr.Id
+                        join c in _context.Categories on pr.CategoryId equals c.Categoryid
+                        where c.Categoryid == categoryId
+                        select new
+                        {
+                            p.Tokennumber,
+                            r.CreatedAt,
+                            CategoryName = c.CategoryName
+                        }
+                    )
+                    .Distinct()
+                    .OrderBy(x => x.CreatedAt)
+                    .ToListAsync();
+
+                    return Ok(new
+                    {
+                        CategoryId = categoryId,
+                        CategoryName = tokens.FirstOrDefault()?.CategoryName,
+                        Tokens = tokens.Select(t => new
+                        {
+                            TokenNumber = t.Tokennumber,
+                            CreatedAt = t.CreatedAt
+                        })
+                    });
+                }
+                catch (Exception ex)
+                {
+                    return StatusCode(500, new { message = "Failed to fetch token list", error = ex.Message });
+                }
+            }
 
 
+
+        [HttpGet("ReceiptByToken")]
+        public async Task<IActionResult> GetReceiptByToken([FromQuery] string tokenNumber)
+        {
+            try
+            {
+                var items = await (
+                    from r in _context.RepairOrders
+                    from p in r.RepairOrderParts
+                    where p.Tokennumber == tokenNumber && p.ProductId != null
+                    join pr in _context.Products on p.ProductId!.Value equals pr.Id
+                    join c in _context.Categories on pr.CategoryId equals c.Categoryid
+                    select new
+                    {
+                        r.RepairOrderId,
+                        r.CreatedAt,
+                        p.Tokennumber,
+                        ProductId = pr.Id,
+                        ProductName = p.ProductName,
+                        Quantity = p.Quantity,
+                        Price = p.Price,
+                        Total = p.Total,
+                        CategoryName = c.CategoryName
+                    }
+                ).ToListAsync();
+
+                if (!items.Any())
+                    return NotFound(new { message = "No items found for this token." });
+
+                var receipt = new
+                {
+                    TokenNumber = tokenNumber,
+                    Category = items.First().CategoryName,
+                    CreatedAt = items.First().CreatedAt,
+                    Items = items.Select(i => new
+                    {
+                        i.ProductId,
+                        i.ProductName,
+                        i.Quantity,
+                        i.Price,
+                        i.Total
+                    }).ToList(),
+                    ReceiptTotal = items.Sum(i => i.Total ?? 0m)
+                };
+
+                return Ok(receipt);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Failed to fetch receipt", error = ex.Message });
+            }
+        }
     }
-
 }

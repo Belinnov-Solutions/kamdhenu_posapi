@@ -22,4 +22,6 @@ public partial class SubCategory
     public DateTime CreatedAt { get; set; }
 
     public Guid? StoreId { get; set; }
+
+    public bool? WebUpload { get; set; }
 }
