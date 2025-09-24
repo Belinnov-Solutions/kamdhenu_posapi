@@ -56,6 +56,8 @@ namespace BELEPOS.Service
                     .Take(_opts.BatchSize)
                     .ToListAsync(ct);
 
+                int repairOrdersSynced = 0;
+
                 if (repairOrders.Count > 0)
                 {
                     _log.LogInformation("Syncing {Count} repair orders...", repairOrders.Count);
@@ -95,6 +97,7 @@ namespace BELEPOS.Service
                                 }
 
                                 await central.SaveChangesAsync(ct);
+                                repairOrdersSynced++;
                             }
 
 #if NET7_0_OR_GREATER
@@ -110,19 +113,41 @@ namespace BELEPOS.Service
                         catch (Exception ex)
                         {
                             _log.LogError(ex, "Failed syncing RepairOrder {OrderId}", ro.RepairOrderId);
+
+                            // log error in sync_logs
+                            local.SyncLogs.Add(new SyncLog
+                            {
+                                Entity = "Orders",
+                                RecordsProcessed = 0,
+                                Status = "Error",
+                                //ErrorMessage = $"Order {ro.RepairOrderId}: {ex.Message}"
+                                ErrorMessage = $"Order {ro.RepairOrderId}: {ex.Message}\n{ex.StackTrace}",
+                            });
+                            await local.SaveChangesAsync(ct);
                         }
                     }
 
                     _log.LogInformation("RepairOrder sync complete.");
                 }
 
+                // Always log result even if 0
+                local.SyncLogs.Add(new SyncLog
+                {
+                    Entity = "Orders",
+                    RecordsProcessed = repairOrdersSynced,
+                    Status = "Success",
+                    ErrorMessage = repairOrdersSynced == 0 ? "No new records" : null
+                });
+                await local.SaveChangesAsync(ct);
+
                 // === SYNC PRODUCTS ===
                 var products = await local.Products
-       .Where(p => (bool)!p.WebUpload)  // only unsynced products
-       .OrderBy(p => p.Id)
-       .Take(_opts.BatchSize)
-       .ToListAsync(ct);
+                    .Where(p => (bool)!p.WebUpload)  // only unsynced products
+                    .OrderBy(p => p.Id)
+                    .Take(_opts.BatchSize)
+                    .ToListAsync(ct);
 
+                int productsSynced = 0;
 
                 if (products.Count > 0)
                 {
@@ -139,12 +164,24 @@ namespace BELEPOS.Service
                             if (!exists)
                             {
                                 central.Products.Add(prod);
+                                productsSynced++;
                             }
                             prod.WebUpload = true;
                         }
                         catch (Exception ex)
                         {
                             _log.LogError(ex, "Failed syncing Product {ProductId}", prod.Id);
+
+                            // log error in sync_logs
+                            local.SyncLogs.Add(new SyncLog
+                            {
+                                Entity = "Products",
+                                RecordsProcessed = 0,
+                                Status = "Error",
+                                //ErrorMessage = $"Product {prod.Id}: {ex.Message}"
+                                ErrorMessage = $"Product {prod.Id}: {ex.Message}\n{ex.StackTrace}",
+                            });
+                            await local.SaveChangesAsync(ct);
                         }
                     }
 
@@ -152,10 +189,33 @@ namespace BELEPOS.Service
                     await local.SaveChangesAsync(ct);
                     _log.LogInformation("Product sync complete.");
                 }
+
+                // Always log result even if 0
+                local.SyncLogs.Add(new SyncLog
+                {
+                    Entity = "Products",
+                    RecordsProcessed = productsSynced,
+                    Status = "Success",
+                    ErrorMessage = productsSynced == 0 ? "No new records" : null
+                });
+                await local.SaveChangesAsync(ct);
             }
             catch (Exception ex)
             {
                 _log.LogError(ex, "Sync batch failed.");
+
+                // global batch failure log
+                using var scope2 = _sp.CreateScope();
+                var local2 = scope2.ServiceProvider.GetRequiredService<BeleposContext>();
+                local2.SyncLogs.Add(new SyncLog
+                {
+                    Entity = "Batch",
+                    RecordsProcessed = 0,
+                    Status = "Error",
+                    //ErrorMessage = ex.ToString()
+                    ErrorMessage = $"{ex.Message}\n{ex.StackTrace}",
+                });
+                await local2.SaveChangesAsync(ct);
             }
         }
     }

@@ -695,7 +695,7 @@ namespace BELEPOS.Controllers.v1
                 //await _eposHelper.PrintReceiptAsync(repairOrderId, printerName.ToString());
 
 
-                await _eposHelper.PrintReceiptAsync(repairOrderId, printerName.ToString(), request);
+                await _eposHelper.PrintReceiptAsync(repairOrderId, /*printerName.ToString(),*/ request);
 
                 await transaction.CommitAsync();
                 return Ok(new
@@ -1384,13 +1384,14 @@ namespace BELEPOS.Controllers.v1
 
 
 
-
+        #region Daily Sales Report
         #region Daily Sales Report
         [HttpGet("SalesReport")]
         public async Task<IActionResult> GetSalesReport(
             [FromQuery] DateTime? dateFrom,
             [FromQuery] DateTime? dateTo,
-            [FromQuery] string groupBy = "day")
+            [FromQuery] string groupBy = "day",
+            [FromQuery] string? paymentMethod = null)
         {
             try
             {
@@ -1403,11 +1404,13 @@ namespace BELEPOS.Controllers.v1
 
                 if (dateFrom.HasValue && dateTo.HasValue)
                     orders = orders.Where(r => r.CreatedAt >= dateFrom && r.CreatedAt <= dateTo);
+                if (!string.IsNullOrEmpty(paymentMethod))
+                    orders = orders.Where(r => r.PaymentMethod == paymentMethod);
 
                 // Flatten parts + join Products + join Categories
                 var parts = from r in orders
                             from p in r.RepairOrderParts
-                            where p.ProductId != null && r.Delind==false
+                            where p.ProductId != null && r.Delind == false
                             join pr in _context.Products on p.ProductId!.Value equals pr.Id
                             join c in _context.Categories on pr.CategoryId equals c.Categoryid
                             select new
@@ -1418,6 +1421,34 @@ namespace BELEPOS.Controllers.v1
                                 Product = pr,
                                 Category = c
                             };
+
+                // Global summary (all categories within filter)
+                var categorySummary = await parts
+                    .GroupBy(x => new { x.Category.Categoryid, x.Category.CategoryName })
+                    .Select(cg => new
+                    {
+                        CategoryId = cg.Key.Categoryid,
+                        CategoryName = cg.Key.CategoryName,
+                        TotalSalesAmount = cg.Sum(x => x.Part.Total ?? 0m),
+                        ItemsSold = cg.Sum(x => (int?)x.Part.Quantity ?? 0)
+                    })
+                    .OrderByDescending(x => x.TotalSalesAmount)
+                    .ToListAsync();
+
+                // === Token list (grouped by TokenNumber, latest first) ===
+                var tokens = await parts
+                    .Where(x => !string.IsNullOrEmpty(x.Part.Tokennumber))
+                    .GroupBy(x => new { x.Part.Tokennumber, x.Category.CategoryName })
+                    .Select(g => new
+                    {
+                        TokenNumber = g.Key.Tokennumber,
+                        CategoryName = g.Key.CategoryName,
+                        TotalPrice = g.Sum(x => x.Part.Price),
+                        LatestCreatedAt = g.Max(x => x.CreatedAt)
+                    })
+                    .OrderByDescending(x => x.LatestCreatedAt) // latest token first
+                    .ThenByDescending(x => x.TokenNumber)     // tie-breaker
+                    .ToListAsync();
 
                 object reportData;
 
@@ -1433,7 +1464,6 @@ namespace BELEPOS.Controllers.v1
                                 ItemsSold = g.Sum(x => (int?)x.Part.Quantity ?? 0),
                                 Orders = g.Select(x => x.RepairOrderId).Distinct().Count(),
 
-                                // Category wise sales summary
                                 Categories = g.GroupBy(x => new { x.Category.Categoryid, x.Category.CategoryName })
                                     .Select(cg => new
                                     {
@@ -1445,7 +1475,6 @@ namespace BELEPOS.Controllers.v1
                                     .OrderByDescending(x => x.TotalSalesAmount)
                                     .ToList(),
 
-                                // Product level breakdown
                                 Products = g.GroupBy(x => new { x.Part.ProductId, x.Part.ProductName })
                                     .Select(pg => new
                                     {
@@ -1464,7 +1493,6 @@ namespace BELEPOS.Controllers.v1
                     case "week":
                         var weekParts = await parts.ToListAsync();
                         var cal = CultureInfo.InvariantCulture.Calendar;
-
                         reportData = weekParts
                             .GroupBy(x =>
                             {
@@ -1547,9 +1575,17 @@ namespace BELEPOS.Controllers.v1
 
                 return Ok(new
                 {
-                    filters = new { dateFrom, dateTo, groupBy },
-                    reportData
+                    filters = new { dateFrom, dateTo, groupBy, paymentMethod },
+                    summary = new
+                    {
+                        TotalOrders = await orders.CountAsync(),
+                        TotalSales = await parts.SumAsync(x => x.Part.Total ?? 0m),
+                        CategorySummary = categorySummary
+                    },
+                    reportData,
+                    tokens // <--- grouped & latest first
                 });
+
             }
             catch (Exception ex)
             {
@@ -1557,6 +1593,9 @@ namespace BELEPOS.Controllers.v1
             }
         }
         #endregion
+
+        #endregion
+
 
 
 
@@ -1665,5 +1704,67 @@ namespace BELEPOS.Controllers.v1
                 return StatusCode(500, new { message = "Failed to fetch receipt", error = ex.Message });
             }
         }
+        [HttpGet("ReceiptByTokenV2")]
+        public async Task<IActionResult> GetReceiptByTokenV2(
+    [FromQuery] string tokenNumber,
+    [FromQuery] DateTime? date = null)
+        {
+            try
+            {
+                //  If no date provided, use today's date (UTC safe)
+                var targetDate = date?.Date ?? DateTime.UtcNow.Date;
+
+                var items = await (
+                    from r in _context.RepairOrders
+                    from p in r.RepairOrderParts
+                    where p.Tokennumber == tokenNumber
+                          && p.ProductId != null
+                          && p.CreatedAt.HasValue
+                          && p.CreatedAt.Value.Date == targetDate
+                    join pr in _context.Products on p.ProductId!.Value equals pr.Id
+                    join c in _context.Categories on pr.CategoryId equals c.Categoryid
+                    select new
+                    {
+                        r.RepairOrderId,
+                        r.CreatedAt,
+                        p.Tokennumber,
+                        ProductId = pr.Id,
+                        ProductName = p.ProductName,
+                        Quantity = p.Quantity,
+                        Price = p.Price,
+                        Total = p.Total,
+                        CategoryName = c.CategoryName
+                    }
+                ).ToListAsync();
+
+                if (!items.Any())
+                    return NotFound(new { message = "No items found for this token on the given date." });
+
+                var receipt = new
+                {
+                    TokenNumber = tokenNumber,
+                    Date = targetDate,  // Return applied date filter
+                    Categories = items.Select(i => i.CategoryName).Distinct().ToList(),
+                    CreatedAt = items.First().CreatedAt,
+                    Items = items.Select(i => new
+                    {
+                        i.ProductId,
+                        i.ProductName,
+                        i.Quantity,
+                        i.Price,
+                        i.Total,
+                        i.CategoryName
+                    }).ToList(),
+                    ReceiptTotal = items.Sum(i => i.Total ?? 0m)
+                };
+
+                return Ok(receipt);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Failed to fetch receipt", error = ex.Message });
+            }
+        }
+
     }
 }

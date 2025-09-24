@@ -23,5 +23,8 @@
         public Guid? Subcategoryid { get; set; }
         public Guid CategoryId { get; set; }
         public String? CategoryName { get; set; }
+
+        public string? OrderType { get; set; }
+
     }
 }

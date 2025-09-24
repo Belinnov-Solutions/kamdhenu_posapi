@@ -5,6 +5,7 @@ using DocumentFormat.OpenXml.Office2016.Excel;
 using Microsoft.EntityFrameworkCore;
 using Razor.Templating.Core;
 using Razor.Templating.Core;
+using System;
 using System.Drawing;
 using System.Drawing.Printing;
 using System.Drawing.Printing;
@@ -768,7 +769,7 @@ namespace BELEPOS.Helper
     
 
 
-        public async Task PrintReceiptAsync(Guid repairOrderId, string printerName, RepairOrderDto request)
+        public async Task PrintReceiptAsync(Guid repairOrderId, /*string printerName,*/ RepairOrderDto request)
         {
             bool isTicketPrint = _config.GetValue<bool>("AppSettings:IsTicketPrint");
             bool isBillPrint = _config.GetValue<bool>("AppSettings:IsBillPrint");
@@ -785,6 +786,7 @@ namespace BELEPOS.Helper
                 select new Reciept
                 {
                     OrderNumber = ro.OrderNumber,
+                    OrderType=ro.OrderType,
                     TotalAmount = ro.TotalAmount,
                     TaxPercent = ro.TaxPercent,
                     DiscountType = ro.DiscountType,
@@ -811,19 +813,19 @@ namespace BELEPOS.Helper
 
             if (isBillPrint)
             {
-                PrintCustomerReceipt(receiptData, printerName, request);
+                PrintCustomerReceipt(receiptData,/* printerName,*/ request);
             }
             // ✅ Customer bill
 
             if (isTicketPrint)
             {
-                PrintCategorySlips(receiptData, printerName, request);
+                PrintCategorySlips(receiptData,/* printerName,*/ request);
             }
             // ✅ Subcategory slips
             //PrintSubcategorySlips(receiptData, printerName, request);
         }
 
-        private void PrintCustomerReceipt(List<Reciept> receiptData, string printerName, RepairOrderDto request)
+        private void PrintCustomerReceipt(List<Reciept> receiptData, /*string printerName,*/ RepairOrderDto request)
         {
 
             string partialPrint = _config.GetValue<string>("AppSettings:PartialPrint");
@@ -850,6 +852,7 @@ namespace BELEPOS.Helper
 
             //sb.AppendLine($"Order #: {receipt.Tokennumber}");
             sb.AppendLine($"Order #: {receipt.OrderNumber}");
+            //sb.AppendLine($"Order Type #: {receipt.OrderType}");
             AddSeparator(sb);
             // Column headers
             AddLine(sb, "Item".PadRight(25) + "Qty".PadRight(5) + "Total".PadLeft(8));
@@ -915,14 +918,14 @@ namespace BELEPOS.Helper
             //AddCenteredLine(sb, "THANK YOU, VISIT AGAIN!");
 
             //return sb.ToString();
-            RawPrint(sb.ToString(), printerName);
+            //RawPrint(sb.ToString(), printerName);
 
 
         }
-        
 
 
-        private void PrintCategorySlips(List<Reciept> receiptData, string printerName, RepairOrderDto request)
+
+        private void PrintCategorySlips(List<Reciept> receiptData, /*string printerName,*/ RepairOrderDto request)
         {
             // 🔹 Build Subcategory → Category map
             var subToCat = _context.SubCategories
@@ -949,24 +952,29 @@ namespace BELEPOS.Helper
                 }
             }
 
-            // ✅ Group dynamically by CategoryId (no hardcoding)
-            var groups = receiptData
-                .GroupBy(r => r.CategoryId);
+            // ✅ Group dynamically by CategoryId
+            var groups = receiptData.GroupBy(r => r.CategoryId);
+
+            string allowedCategory = _config.GetValue<string>("AppSettings:allowedCategory");
 
             foreach (var group in groups)
             {
                 var categoryName = group.First().CategoryName ?? "Unknown";
                 var items = group.ToList();
 
-                if (items.Any())
-                {
-                    PrintSlip(items, printerName, categoryName);
-                }
+                if (!items.Any())
+                    continue;
+
+                // If category matches allowed → include category name, else pass empty
+                string slipTitle = string.Equals(categoryName, allowedCategory, StringComparison.OrdinalIgnoreCase)
+                    ? categoryName
+                    : string.Empty;
+                if (string.IsNullOrWhiteSpace(slipTitle))
+                    PrintSlip(items,/* printerName,*/ slipTitle);
             }
         }
 
-
-        private void PrintSlip(List<Reciept> items, string printerName, string slipTitle)
+        private void PrintSlip(List<Reciept> items, /*string printerName,*/ string slipTitle)
         {
             if (items == null || !items.Any()) return;
 
@@ -976,11 +984,15 @@ namespace BELEPOS.Helper
 
             sb.AppendLine($"Token #: {first.Tokennumber}");
             sb.AppendLine($"Order #: {first.OrderNumber}");
-           // sb.AppendLine($"Slip: {slipTitle}");
+            sb.AppendLine($"Order Type : {first.OrderType}");
+
+            // ✅ Print slip title only if not empty
+            if (!string.IsNullOrWhiteSpace(slipTitle))
+                sb.AppendLine($"Slip: {slipTitle}");
 
             // ✅ Compute slip total
             foreach (var item in items)
-                slipTotal += (item.Total ?? 0) * item.Quantity;
+                slipTotal += (item.Total ?? 0);
 
             sb.AppendLine($"Total: {slipTotal:0.00}");
             sb.AppendLine($"Date: {DateTime.Now:dd/MM/yyyy HH:mm}");
@@ -1005,8 +1017,9 @@ namespace BELEPOS.Helper
 
             sb.AppendLine("\x1D\x56\x00"); // ✅ Autocut
 
-            RawPrint(sb.ToString(), printerName);
+            //RawPrint(sb.ToString(), printerName);
         }
+
 
 
 
@@ -1077,7 +1090,7 @@ namespace BELEPOS.Helper
                 //sb.AppendLine("   --- END OF SLIP ---   ");
                 sb.AppendLine("\x1D\x56\x00"); // ✅ Autocut
 
-                RawPrint(sb.ToString(), printerName);
+                //RawPrint(sb.ToString(), printerName);
             }
         }
 
