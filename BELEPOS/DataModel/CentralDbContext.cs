@@ -81,7 +81,10 @@ public partial class CentralDbContext : DbContext
 
     public virtual DbSet<Warehouse> Warehouses { get; set; }
 
- 
+//    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
+//#warning To protect potentially sensitive information in your connection string, you should move it out of source code. You can avoid scaffolding the connection string by using the Name= syntax to read it from configuration - see https://go.microsoft.com/fwlink/?linkid=2131148. For more guidance on storing connection strings, see https://go.microsoft.com/fwlink/?LinkId=723263.
+//        => optionsBuilder.UseNpgsql("Host=49.205.172.128;Database=Kamdhenu;Username=postgres;Password=yellowbus");
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder
@@ -143,6 +146,7 @@ public partial class CentralDbContext : DbContext
                 .HasColumnType("timestamp without time zone")
                 .HasColumnName("lastmodified_at");
             entity.Property(e => e.StoreId).HasColumnName("store_id");
+            entity.Property(e => e.WebUpload).HasDefaultValue(false);
         });
 
         modelBuilder.Entity<ChecklistCategory>(entity =>
@@ -714,6 +718,9 @@ public partial class CentralDbContext : DbContext
             entity.Property(e => e.OrderNumber)
                 .HasMaxLength(50)
                 .HasColumnName("order_number");
+            entity.Property(e => e.OrderType)
+                .HasMaxLength(100)
+                .HasColumnName("order_type");
             entity.Property(e => e.Paid)
                 .HasDefaultValue(false)
                 .HasColumnName("paid");
@@ -1021,6 +1028,7 @@ public partial class CentralDbContext : DbContext
                 .HasMaxLength(100)
                 .HasColumnName("name");
             entity.Property(e => e.StoreId).HasColumnName("store_id");
+            entity.Property(e => e.WebUpload).HasDefaultValue(false);
         });
 
         modelBuilder.Entity<SyncLog>(entity =>

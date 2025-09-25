@@ -115,7 +115,7 @@ namespace BELEPOS.Service
                             _log.LogError(ex, "Failed syncing RepairOrder {OrderId}", ro.RepairOrderId);
 
                             // log error in sync_logs
-                            local.SyncLogs.Add(new SyncLog
+                            central.SyncLogs.Add(new SyncLog
                             {
                                 Entity = "Orders",
                                 RecordsProcessed = 0,
@@ -131,7 +131,7 @@ namespace BELEPOS.Service
                 }
 
                 // Always log result even if 0
-                local.SyncLogs.Add(new SyncLog
+                central.SyncLogs.Add(new SyncLog
                 {
                     Entity = "Orders",
                     RecordsProcessed = repairOrdersSynced,
@@ -173,7 +173,7 @@ namespace BELEPOS.Service
                             _log.LogError(ex, "Failed syncing Product {ProductId}", prod.Id);
 
                             // log error in sync_logs
-                            local.SyncLogs.Add(new SyncLog
+                            central.SyncLogs.Add(new SyncLog
                             {
                                 Entity = "Products",
                                 RecordsProcessed = 0,
@@ -191,7 +191,7 @@ namespace BELEPOS.Service
                 }
 
                 // Always log result even if 0
-                local.SyncLogs.Add(new SyncLog
+                central.SyncLogs.Add(new SyncLog
                 {
                     Entity = "Products",
                     RecordsProcessed = productsSynced,
