@@ -25,6 +25,7 @@
         public String? CategoryName { get; set; }
 
         public string? OrderType { get; set; }
+        public string? PaymentMethod { get; set; }
 
     }
 }

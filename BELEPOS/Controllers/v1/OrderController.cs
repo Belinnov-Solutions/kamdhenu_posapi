@@ -1727,6 +1727,7 @@ namespace BELEPOS.Controllers.v1
                     {
                         r.RepairOrderId,
                         r.CreatedAt,
+                        r.PaymentMethod,        // Added PaymentMethod here
                         p.Tokennumber,
                         ProductId = pr.Id,
                         ProductName = p.ProductName,
@@ -1744,6 +1745,7 @@ namespace BELEPOS.Controllers.v1
                 {
                     TokenNumber = tokenNumber,
                     Date = targetDate,  // Return applied date filter
+                    PaymentMethod = items.First().PaymentMethod, // Include payment method
                     Categories = items.Select(i => i.CategoryName).Distinct().ToList(),
                     CreatedAt = items.First().CreatedAt,
                     Items = items.Select(i => new
@@ -1763,6 +1765,50 @@ namespace BELEPOS.Controllers.v1
             catch (Exception ex)
             {
                 return StatusCode(500, new { message = "Failed to fetch receipt", error = ex.Message });
+            }
+        }
+
+        [HttpDelete("DeleteReceiptByToken")]
+        public async Task<IActionResult> DeleteReceiptByTokenV2(
+    [FromQuery] string tokenNumber,
+    [FromQuery] DateTime? date = null)
+        {
+            try
+            {
+                // If no date provided, use today's date (UTC safe)
+                var targetDate = date?.Date ?? DateTime.UtcNow.Date;
+
+                // Find repair orders and parts linked to the token
+                var orders = await _context.RepairOrders
+                    .Where(r => r.RepairOrderParts.Any(p =>
+                        p.Tokennumber == tokenNumber &&
+                        p.CreatedAt.HasValue &&
+                        p.CreatedAt.Value.Date == targetDate))
+                    .ToListAsync();
+
+                if (!orders.Any())
+                    return NotFound(new { message = "No repair orders found for this token on the given date." });
+
+                // Soft delete (mark Delind = true)
+                foreach (var order in orders)
+                {
+                    order.Delind = true;
+                    _context.RepairOrders.Update(order);
+                }
+
+                await _context.SaveChangesAsync();
+
+                return Ok(new
+                {
+                    message = "Receipt deleted successfully.",
+                    TokenNumber = tokenNumber,
+                    Date = targetDate,
+                    DeletedOrders = orders.Select(o => o.RepairOrderId)
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Failed to delete receipt", error = ex.Message });
             }
         }
 

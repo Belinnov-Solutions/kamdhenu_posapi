@@ -803,8 +803,8 @@ namespace BELEPOS.Helper
                     Total = p.Total,
                     Tokennumber = p.Tokennumber,
                     Subcategoryid = p.Subcategoryid,
-                    CategoryName = pc != null ? pc.Name : string.Empty
-
+                    CategoryName = pc != null ? pc.Name : string.Empty,
+                    PaymentMethod=ro.PaymentMethod
                 }
             ).ToListAsync();
 
@@ -852,7 +852,7 @@ namespace BELEPOS.Helper
 
             //sb.AppendLine($"Order #: {receipt.Tokennumber}");
             sb.AppendLine($"Order #: {receipt.OrderNumber}");
-            //sb.AppendLine($"Order Type #: {receipt.OrderType}");
+            sb.AppendLine($"Payment Method : {receipt.PaymentMethod}");
             AddSeparator(sb);
             // Column headers
             AddLine(sb, "Item".PadRight(25) + "Qty".PadRight(5) + "Total".PadLeft(8));
@@ -955,7 +955,7 @@ namespace BELEPOS.Helper
             // ✅ Group dynamically by CategoryId
             var groups = receiptData.GroupBy(r => r.CategoryId);
 
-            string allowedCategory = _config.GetValue<string>("AppSettings:allowedCategory");
+            string allowedCategory = _config.GetValue<string>("AppSettings:StopPrintCategory");
 
             foreach (var group in groups)
             {
@@ -999,18 +999,41 @@ namespace BELEPOS.Helper
             AddSeparator(sb);
 
             // ✅ Table header
-            AddLine(sb, "Item".PadRight(25) + "Qty".PadRight(5));
+            AddLine(sb, "Item".PadRight(30) + "Qty".PadRight(5));
             AddSeparator(sb);
 
+            //foreach (var item in items)
+            //{
+            //    string name = item.ProductName.Length > 20
+            //        ? item.ProductName.Substring(0, 20) + "..."
+            //        : item.ProductName.PadRight(25);
+
+            //    string qty = item.Quantity.ToString().PadRight(5);
+
+            //    sb.AppendLine(name + qty);
+            //}
             foreach (var item in items)
             {
-                string name = item.ProductName.Length > 20
-                    ? item.ProductName.Substring(0, 20) + "..."
-                    : item.ProductName.PadRight(25);
-
+                int nameWidth = 30;
                 string qty = item.Quantity.ToString().PadRight(5);
 
-                sb.AppendLine(name + qty);
+                // Break product name into chunks of max length nameWidth
+                string productName = item.ProductName ?? "";
+                for (int i = 0; i < productName.Length; i += nameWidth)
+                {
+                    string chunk = productName.Substring(i, Math.Min(nameWidth, productName.Length - i));
+
+                    if (i == 0)
+                    {
+                        // First line → include Qty
+                        sb.AppendLine(chunk.PadRight(nameWidth) + qty);
+                    }
+                    else
+                    {
+                        // Continuation lines → indent, no Qty
+                        sb.AppendLine(chunk);
+                    }
+                }
             }
 
             AddSeparator(sb);
