@@ -24,4 +24,8 @@ public partial class OrderPayment
     public bool FullyPaid { get; set; }
 
     public decimal? Remainingamount { get; set; }
+
+    public DateTime? OrderDate { get; set; }
+
+    public virtual RepairOrder Repairorder { get; set; } = null!;
 }

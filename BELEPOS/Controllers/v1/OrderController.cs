@@ -2,6 +2,7 @@
 using BELEPOS.DataModel;
 using BELEPOS.Entity;
 using BELEPOS.Helper;
+using DocumentFormat.OpenXml.Drawing.Charts;
 using DocumentFormat.OpenXml.InkML;
 using DocumentFormat.OpenXml.Spreadsheet;
 using Humanizer;
@@ -9,12 +10,21 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking.Internal;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Net.Http.Headers;
 using System.Net.Sockets;
+using System.Text;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json;
 using System.Threading.Tasks;
 using System.Xml.Linq;
 using static Microsoft.EntityFrameworkCore.DbLoggerCategory;
@@ -28,97 +38,31 @@ namespace BELEPOS.Controllers.v1
     [ApiVersion("1.0")]
     public class OrderController : ControllerBase
     {
+
         private readonly BeleposContext _context;
         private readonly EPoshelper _eposHelper;
         private readonly IConfiguration _config;
+        private readonly ILogger<OrderController> _logger;
+        private readonly CentralDbContext _centralDB;
 
-        public OrderController(BeleposContext context, EPoshelper ePoshelper, IConfiguration config)
+        // simple in-process scheduler
+        private static System.Threading.Timer? _syncTimer;
+        private static readonly object _timerLock = new();
+
+        public OrderController(BeleposContext context, EPoshelper ePoshelper, IConfiguration config, ILogger<OrderController> logger, CentralDbContext centralDb)
         {
             _context = context;
             _eposHelper = ePoshelper;
             _config = config;
+            _logger = logger;
+            _centralDB = centralDb;
         }
 
 
 
 
-        #region  Add parts or update 
-        /*[HttpPost("SavePart")]
-        public async Task<IActionResult> SavePart([FromBody] PartDto dto)
-        {
-            if (!ModelState.IsValid)
-                return BadRequest(ModelState);
-
-            Part part = new Part();
-
-            try
-            {
-                if (dto.PartId.HasValue && dto.PartId != Guid.Empty)
-                {
-                    // UPDATE
-                    part = await _context.Parts.FindAsync(dto.PartId.Value);
-                    if (part == null)
-                        return NotFound(new { message = "Part not found with given ID." });
-
-                    part.PartName = dto.PartName;
-                    part.PartNumber = dto.PartNumber;
-                    part.SerialNumber = dto.SerialNumber;
-                    part.Description = dto.Description;
-                    part.Price = dto.Price;
-                    part.Stock = dto.Stock;
-                    if (dto.OpeningStockDate.HasValue)
-                        part.OpeningStockDate = DateTime.SpecifyKind(dto.OpeningStockDate.Value, DateTimeKind.Unspecified);
-
-                    part.Location = dto.Location;
-                    part.InStock = dto.InStock;
-                    part.StoreId = dto.StoreId;
-                    part.UpdatedAt = DateTime.Now;
-
-                    await _context.SaveChangesAsync();
-                    return Ok(new { message = "Part updated successfully", data = part });
-                }
-                else
-                {
-                    // ADD NEW
-                    part = new Part
-                    {
-                        PartId = Guid.NewGuid(),
-                        PartName = dto.PartName,
-                        PartNumber = dto.PartNumber,
-                        SerialNumber = dto.SerialNumber,
-                        Description = dto.Description,
-                        Price = dto.Price,
-                        Stock = dto.Stock,
-                        OpeningStockDate = dto.OpeningStockDate.HasValue
-                         ? DateTime.SpecifyKind(dto.OpeningStockDate.Value, DateTimeKind.Unspecified)
-                         : null,
-                        Location = dto.Location,
-                        InStock = dto.InStock ?? true,
-                        StoreId = dto.StoreId,
-                        UpdatedAt = DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Unspecified),
-                        CreatedAt = DateTime.Now,
-
-
-                        Delind = false
-                    };
-
-                    _context.Parts.Add(part);
-                    await _context.SaveChangesAsync();
-                    return Ok(new { message = "Part added successfully", data = part });
-                }
-            }
-            catch (Exception ex)
-            {
-
-                return StatusCode(500, new
-                {
-                    message = "Failed to add parts.",
-                    error = ex.InnerException?.Message ?? ex.Message
-                });
-            }
-
-
-        }*/
+        
+        
 
         #region  Add parts or update 
         [HttpPost("SavePart")]
@@ -230,396 +174,7 @@ namespace BELEPOS.Controllers.v1
         #endregion
 
 
-        #endregion
 
-
-
-
-
-
-        //        [HttpPost("ConfirmOrder")]
-        //        public async Task<IActionResult> ConfirmOrder([FromBody] RepairOrderDto request)
-        //        {
-
-        //            var storeExists = await _context.Stores
-        //              .AnyAsync(s => s.Id == request.StoreId && s.DelInd == false && s.IsActive == true);
-
-        //            if (!storeExists)
-        //                return BadRequest("Store not found or inactive");
-
-        //            var repairOrder = new RepairOrder();
-
-        //            using var transaction = await _context.Database.BeginTransactionAsync();
-        //            try
-        //            {
-
-
-        //                var isUpdate = request.RepairOrderId != Guid.Empty;
-        //                var repairOrderId = isUpdate ? request.RepairOrderId : Guid.NewGuid();
-        //                var ticketNo = isUpdate ? request.Tickets.TicketNo : await _eposHelper.GenerateTicketNumberAsync();
-        //                var orderNumber = isUpdate ? request.OrderNumber : await _eposHelper.GenerateOrderNumberAsync();
-
-        //                //decimal totalAmount = 0;
-        //                decimal servicePrice = 0;
-
-        //                //decimal partTotal = request.Parts?.Sum(p => p.Price * p.Quantity) ?? 0;
-
-        //                //var service = await _context.Products
-        //                //        .FirstOrDefaultAsync(s => s.Id == request.Tickets.TaskTypeId && s.Type == ProductType.Service.ToString());
-        //                //if (service != null)
-        //                //{
-        //                //    totalAmount = (decimal)(service.Price + partTotal);
-        //                //}
-        //                //else
-        //                //{
-        //                //    totalAmount = partTotal;
-        //                //}
-        //                decimal totalAmount = await _eposHelper.CalculateTotalAmountAsync(request);
-        //                decimal paidAmount = request.PaidAmount ?? 0;
-
-
-        //                if (isUpdate)
-        //                {
-        //                    var existingOrder = await _context.RepairOrders.FirstOrDefaultAsync(o => o.RepairOrderId == repairOrderId);
-        //                    if (existingOrder == null)
-        //                        return NotFound("Repair order not found.");
-
-        //                    existingOrder.PaymentMethod = request.PaymentMethod;
-        //                    existingOrder.CustomerId = request.CustomerId;
-        //                    existingOrder.UserId = request.UserId;
-        //                    existingOrder.IssueDescription = request.IssueDescription;
-        //                    existingOrder.RepairStatus = request.RepairStatus ?? "Pending";
-        //                    existingOrder.ExpectedDeliveryDate = request.ExpectedDeliveryDate;
-        //                    existingOrder.ReceivedDate = request.ReceivedDate?.ToUniversalTime();
-        //                    existingOrder.StoreId = request.StoreId;
-        //                    existingOrder.UpdatedAt = DateTime.Now.ToUniversalTime();
-        //                    existingOrder.Isfinalsubmit = request.IsFinalSubmit;
-        //                    //existingOrder.TotalAmount = existingOrder.TotalAmount + partTotal;
-        //                    existingOrder.TotalAmount = totalAmount;
-        //                    existingOrder.Contactmethod = request.Contactmethod != null
-        //                     ? string.Join(",", request.Contactmethod)
-        //                    : null;
-
-        //                    // Determine paid status
-        //                    existingOrder.Paid = request.RepairStatus == "Delivered";
-
-        //                    var ticket = await _context.RepairTickets.FirstOrDefaultAsync(t => t.OrderId == repairOrderId);
-        //                    if (ticket != null)
-        //                    {
-        //                        ticket.Storeid = request.StoreId ?? throw new Exception("StoreId is required for ticket");
-        //                        ticket.DeviceType = request.Tickets.DeviceType;
-        //                        ticket.Ipaddress = request.Tickets.IPAddress;
-        //                        ticket.Userid = request.UserId;
-        //                        ticket.Brand = request.Tickets.Brand;
-        //                        ticket.Model = request.Tickets.Model;
-        //                        ticket.ImeiNumber = request.Tickets.ImeiNumber;
-        //                        ticket.SerialNumber = request.Tickets.SerialNumber;
-        //                        ticket.Passcode = request.Tickets.Passcode;
-        //                        ticket.ServiceCharge = request.Tickets.ServiceCharge;
-        //                        ticket.Repaircost = request.Tickets.RepairCost;
-        //                        ticket.Technicianid = request.Tickets.TechnicianId;
-        //                        ticket.Duedate = request.Tickets.DueDate?.ToUniversalTime() ?? DateTime.UtcNow;
-        //                        ticket.Status = request.Tickets.Status ?? RepairStatus.Pending.ToString();
-        //                        ticket.Tasktypeid = request.Tickets.TaskTypeId;
-        //                        ticket.DeviceColour = request.Tickets.DeviceColour;
-
-        //                        if (request.Tickets.Notes?.Any() == true)
-        //                        {
-        //                            var existingNotes = await _context.Ticketnotes
-        //                                .Where(n => n.Ticketid == ticket.Ticketid).ToListAsync();
-
-        //                            foreach (var note in request.Tickets.Notes)
-        //                            {
-        //                                if (note.Id != Guid.Empty)
-        //                                {
-        //                                    var existingNote = existingNotes.FirstOrDefault(n => n.Noteid == note.Id);
-        //                                    if (existingNote != null)
-        //                                    {
-        //                                        existingNote.Note = note.Notes;
-        //                                        existingNote.Type = note.Type;
-        //                                    }
-        //                                }
-        //                                else
-        //                                {
-        //                                    _context.Ticketnotes.Add(new Ticketnote
-        //                                    {
-        //                                        Noteid = Guid.NewGuid(),
-        //                                        Note = note.Notes,
-        //                                        Type = note.Type,
-        //                                        Ticketid = ticket.Ticketid,
-        //                                        OrderId = repairOrderId,
-        //                                        Userid = request.UserId
-        //                                    });
-        //                                }
-        //                            }
-        //                        }
-        //                    }
-        //                }
-        //                else
-        //                {
-
-        //                    var partProductIds = request.Parts?.Select(p => p.ProductId).ToList() ?? new();
-
-
-        //                    repairOrder = new RepairOrder
-        //                    {
-        //                        RepairOrderId = repairOrderId,
-        //                        OrderNumber = orderNumber,
-        //                        PaymentMethod = request.PaymentMethod,
-        //                        CustomerId = request.CustomerId,
-        //                        UserId = request.UserId,
-        //                        IssueDescription = request.IssueDescription,
-        //                        RepairStatus = RepairStatus.Pending.ToString(),
-        //                        Contactmethod = request.Contactmethod != null ? string.Join(",", request.Contactmethod) : null,
-        //                        ExpectedDeliveryDate = request.ExpectedDeliveryDate,
-        //                        StoreId = request.StoreId,
-        //                        ReceivedDate = request.ReceivedDate?.ToUniversalTime(),
-        //                        CreatedAt = request.CreatedAt?.ToUniversalTime(),
-        //                        Isfinalsubmit = request.IsFinalSubmit,
-        //                        ProductType = request.ProductType,
-        //                        Delind = false,
-        //                        TotalAmount = totalAmount
-        //                    };
-
-        //                    // Determine paid
-        //                    repairOrder.Paid = request.RepairStatus! == "Delivered";
-        //                    _context.RepairOrders.Add(repairOrder);
-        //                    _context.OrderPayments.Add(new OrderPayment
-        //                    {
-        //                        Paymentid = Guid.NewGuid(),
-        //                        Repairorderid = repairOrderId,
-        //                        Amount = paidAmount,
-        //                        PaymentMethod = request.PaymentMethod,
-        //                        PartialPayment = paidAmount < totalAmount,
-        //                        // TotalAmountAtTime = totalAmount,
-        //                        // FullyPaid = paidAmount >= totalAmount,
-        //                        //CreatedBy = request.UserId,
-        //                        // PaidAt = DateTime.UtcNow,
-        //                        //CreatedAt = DateTime.UtcNow,
-
-        //                    });
-
-
-
-        //                    if (request.Tickets != null)
-        //                    {
-        //                        if (request.ProductType != ProductType.Product.ToString())
-        //                        {
-        //                            var ticket = new RepairTicket
-        //                            {
-        //                                Ticketid = Guid.NewGuid(),
-        //                                OrderId = repairOrderId,
-        //                                Storeid = request.StoreId ?? throw new Exception("StoreId is required"),
-        //                                DeviceType = request.Tickets.DeviceType,
-        //                                Ipaddress = request.Tickets.IPAddress,
-        //                                Userid = request.UserId,
-        //                                Brand = request.Tickets.Brand,
-        //                                Model = request.Tickets.Model,
-        //                                DeviceColour = request.Tickets.DeviceColour,
-        //                                ImeiNumber = request.Tickets.ImeiNumber,
-        //                                SerialNumber = request.Tickets.SerialNumber,
-        //                                Passcode = request.Tickets.Passcode,
-        //                                ServiceCharge = request.Tickets.ServiceCharge,
-        //                                Repaircost = servicePrice,
-        //                                Technicianid = request.Tickets.TechnicianId,
-        //                                Duedate = request.Tickets.DueDate?.ToUniversalTime(),
-        //                                Status = request.Tickets.Status ?? RepairStatus.Pending.ToString(),
-        //                                Tasktypeid = request.Tickets.TaskTypeId,
-        //                                TicketNo = ticketNo
-        //                            };
-
-        //                            _context.RepairTickets.Add(ticket);
-
-        //                            if (request.Tickets.Notes?.Any() == true)
-        //                            {
-        //                                foreach (var note in request.Tickets.Notes)
-        //                                {
-        //                                    _context.Ticketnotes.Add(new Ticketnote
-        //                                    {
-        //                                        Noteid = Guid.NewGuid(),
-        //                                        Note = note.Notes,
-        //                                        Type = note.Type,
-        //                                        Ticketid = ticket.Ticketid,
-        //                                        OrderId = repairOrderId,
-        //                                        Userid = request.UserId
-        //                                    });
-        //                                }
-        //                            }
-        //                        }
-        //                    }
-
-        //                }
-
-        //                if (request.Parts?.Any() == true)
-        //                {
-        //                    var existingParts = await _context.RepairOrderParts
-        //                        .Where(p => p.RepairOrderId == repairOrderId).ToListAsync();
-
-        //                    foreach (var part in request.Parts)
-        //                    {
-        //                        var existingPart = existingParts.FirstOrDefault(p => p.ProductId == part.ProductId);
-
-        //                        if (existingPart != null)
-        //                        {
-        //                            existingPart.ProductName = part.ProductName;
-        //                            //existingPart.BrandName = part.BrandName;
-        //                            //  existingPart.PartDescription = part.PartDescription;
-        //                            // existingPart.DeviceType = part.DeviceType;
-        //                            // existingPart.DeviceModel = part.DeviceModel;
-        //                            //  existingPart.SerialNumber = part.SerialNumber;
-        //                            existingPart.Quantity = part.Quantity;
-        //                            existingPart.Price = part.Price;
-        //                            existingPart.Total = part.Price * part.Quantity;
-        //                            existingPart.ProductType = request.ProductType;
-        //                        }
-        //                        else
-        //                        {
-        //                            _context.RepairOrderParts.Add(new RepairOrderPart
-        //                            {
-        //                                Id = Guid.NewGuid(),
-        //                                RepairOrderId = repairOrderId,
-        //                                ProductId = part.ProductId,
-        //                                // BrandName = part.BrandName,
-        //                                ProductName = part.ProductName,
-        //                                // PartDescription = part.PartDescription,
-        //                                //  DeviceType = part.DeviceType,
-        //                                // DeviceModel = part.DeviceModel,
-        //                                // SerialNumber = part.SerialNumber,
-        //                                Quantity = part.Quantity,
-        //                                Price = part.Price,
-        //                                Total = part.Price * part.Quantity,
-        //                                ProductType = request.ProductType
-        //                            });
-        //                        }
-        //                    }
-        //                }
-
-        //                // Add payment order
-        //                //_context.OrderPayments.Add(new OrderPayment
-        //                //{
-        //                //    Paymentid = Guid.NewGuid(),
-        //                //    Repairorderid = repairOrderId,
-        //                //    Amount = (decimal)totalAmount,
-        //                //    PaymentMethod = request.PaymentMethod,
-        //                //    PartialPayment = request.RepairStatus == RepairStatus.Delivered.ToString() ? true : false,
-        //                //    //PaidAt = DateTime.Now.ToUniversalTime(),
-        //                //    //CreatedAt = DateTime.Now.ToUniversalTime(),
-
-
-        //                //});
-
-        //                await _context.SaveChangesAsync();
-
-
-
-
-        //                if (request.ChecklistResponses?.Responses?.Any() == true)
-        //                {
-        //                    var orderId = repairOrderId;
-
-        //                    if (orderId == Guid.Empty)
-        //                        return BadRequest("Checklist responses require a valid order ID.");
-
-        //                    var ticket = await _context.RepairTickets
-        //                        .FirstOrDefaultAsync(t => t.OrderId == orderId);
-
-        //                    if (ticket == null)
-        //                        return BadRequest("Checklist responses require a valid ticket. No ticket found for this order.");
-
-        //                    var ticketId = ticket.Ticketid;
-
-        //                    var checklistIds = request.ChecklistResponses.Responses
-        //                        .Select(r => r.ChecklistId)
-        //                        .ToList();
-
-        //                    var existingResponses = await _context.ChecklistResponses
-        //                        .Where(r => checklistIds.Contains(r.ChecklistId) && r.OrderId == orderId && r.TicketId == ticketId)
-        //                        .ToListAsync();
-
-        //                    foreach (var responseDto in request.ChecklistResponses.Responses)
-        //                    {
-        //                        var existing = existingResponses
-        //                            .FirstOrDefault(r => r.ChecklistId == responseDto.ChecklistId);
-
-        //                        if (existing != null)
-        //                        {
-        //                            existing.Value = responseDto.Value;
-        //                            existing.RepairInspection = responseDto.RepairInspection;
-        //                            existing.RespondedAt = DateTime.UtcNow;
-        //                        }
-        //                        else
-        //                        {
-        //                            _context.ChecklistResponses.Add(new ChecklistResponse
-        //                            {
-        //                                Id = Guid.NewGuid(),
-        //                                ChecklistId = responseDto.ChecklistId,
-        //                                OrderId = orderId,
-        //                                TicketId = ticketId,
-        //                                Value = responseDto.Value,
-        //                                RepairInspection = responseDto.RepairInspection,
-        //                                RespondedAt = DateTime.UtcNow
-        //                            });
-        //                        }
-        //                    }
-        //                }
-        //                await _context.SaveChangesAsync();// save checklist responses
-
-        //                // Fetch ticket again (in case it's newly created)
-        //                //var finalTicket = await _context.RepairOrders
-        //                //    .FirstOrDefaultAsync(t => t.OrderNumber == orderNumber);
-
-        //                //if (finalTicket != null)
-        //                //{
-        //                //    var customer = await _context.Customers
-        //                //        .FirstOrDefaultAsync(c => c.CustomerId == finalTicket.CustomerId);
-
-        //                //    var storeManager = await _context.Users
-        //                //    .Include(u => u.Role)
-        //                //     .FirstOrDefaultAsync(u => u.Storeid == finalTicket.StoreId && u.Role.Rolename == "Store Manager");
-
-
-        //                //    var emailModel = new EmailTicketViewModel
-        //                //    {
-        //                //        TicketNumber = finalTicket.OrderNumber,
-        //                //        Status = finalTicket.RepairStatus,
-        //                //        DueDate = finalTicket.ExpectedDeliveryDate ?? DateTime.UtcNow,
-        //                //        //RecipientName = customer?.Customername ?? "Customer"
-        //                //    };
-
-        //                //    if (!string.IsNullOrEmpty(customer?.Email))
-        //                //    {
-        //                //        await _eposHelper.SendRepairTicketEmailAsync(emailModel, customer.Email, finalTicket.UserId);
-        //                //    }
-
-        //                //    if (storeManager != null && !string.IsNullOrEmpty(storeManager.Email))
-        //                //    {
-        //                //        await _eposHelper.SendRepairTicketEmailAsync(emailModel, storeManager.Email, finalTicket.UserId);
-        //                //    }
-        //                //}
-
-        //                await transaction.CommitAsync();
-
-        //                return Ok(new
-        //                {
-        //                    message = isUpdate ? "Order updated successfully." : "Order created successfully.",
-        //                    repairOrderId,
-        //                    orderNumber,
-        //                    ticketNo
-        //                });
-        //            }
-        //            catch (Exception ex)
-        //            {
-        //                await transaction.RollbackAsync();
-        //                return StatusCode(500, new
-        //                {
-        //                    message = "Failed to save order",
-        //                    error = ex.ToString()
-        //                });
-        //            }
-        //        }
-
-
-        //#endregion
 
 
         #region confirm Order
@@ -653,7 +208,7 @@ namespace BELEPOS.Controllers.v1
             {
                 var repairOrderId = isUpdate ? request.RepairOrderId : Guid.NewGuid();
                 var ticketNo = isUpdate ? request.Tickets?.TicketNo : await _eposHelper.GenerateTicketNumberAsync();
-                var orderNumber = isUpdate ? request.OrderNumber : await _eposHelper.GenerateOrderNumberAsync();
+                var orderNumber = isUpdate ? request.OrderNumber : await _eposHelper.GenerateOrderNumberAsync(_config);
 
                 if (isUpdate)
                 {
@@ -667,7 +222,7 @@ namespace BELEPOS.Controllers.v1
 
                 }
 
-                
+
                 if (request.Parts?.Any() == true)
                 {
                     await _eposHelper.SaveParts(repairOrderId, request);
@@ -675,7 +230,7 @@ namespace BELEPOS.Controllers.v1
                         await _eposHelper.EnsureStockAndDeductAsync(part.ProductId, part.Quantity);
                 }
                 //await _eposHelper.SavePayments(isUpdate, repairOrderId, request);
-
+                request.PaidAmount = request.TotalAmount;
 
                 await _eposHelper.SavePayments(repairOrderId, request);
 
@@ -695,7 +250,7 @@ namespace BELEPOS.Controllers.v1
                 //await _eposHelper.PrintReceiptAsync(repairOrderId, printerName.ToString());
 
 
-                await _eposHelper.PrintReceiptAsync(repairOrderId, /*printerName.ToString(),*/ request);
+                await _eposHelper.PrintReceiptAsync(repairOrderId, printerName.ToString(), request);
 
                 await transaction.CommitAsync();
                 return Ok(new
@@ -1037,73 +592,7 @@ namespace BELEPOS.Controllers.v1
         #endregion
 
 
-        /*#region Cancel Repair Order
-        [HttpGet("CancelTicket")]
-        public async Task<IActionResult> CancelRepairOrderAndTicket([FromQuery] Guid tikcetId, Guid orderId)
-        {
-            try
-            {
-                if (tikcetId == Guid.Empty || orderId == Guid.Empty)
-                {
-                    return BadRequest("Both ticketId and orderId are required.");
-                }
 
-                // Fetch the ticket
-                var ticket = await _context.Repairtickets
-                    .FirstOrDefaultAsync(t => t.Ticketid == tikcetId);
-
-                if (ticket == null)
-                {
-                    return NotFound("Repair ticket not found.");
-                }
-
-                // Validate that ticket belongs to order
-                if (ticket.OrderId != orderId)
-                {
-                    return BadRequest("The ticket does not belong to the provided order.");
-                }
-
-                // Fetch the order
-                var order = await _context.Repairorders
-                    .FirstOrDefaultAsync(o => o.RepairOrderId == orderId);
-
-                if (order == null)
-                {
-                    return NotFound("Repair order not found.");
-                }
-
-                // Fetch parts
-                var parts = await _context.Repairorderparts
-                    .Where(p => p.RepairOrderId == orderId)
-                    .ToListAsync();
-
-                // Mark all as cancelled
-                ticket.Cancelled = true;
-                order.Cancelled = true;
-
-                foreach (var part in parts)
-                {
-                    part.Cancelled = true;
-                }
-
-                await _context.SaveChangesAsync();
-
-                return Ok(new
-                {
-                    message = "Ticket has been cancelled successfully.",
-                });
-            }
-            catch (Exception ex)
-            {
-
-                return StatusCode(500, new
-                {
-                    message = "An error occurred while cancelling the repair ticket and order.",
-                    error = ex.Message
-                });
-            }
-        }
-        #endregion*/
 
 
 
@@ -1238,153 +727,8 @@ namespace BELEPOS.Controllers.v1
         #endregion
 
 
-        ///////////////////////////////////////////////  Reports ////////////////////////////////////////////////////
-
-        /*#region Daily Sales Report
-        [HttpGet("SalesReport")]
-        public async Task<IActionResult> GetSalesReport(
-        [FromQuery] DateTime? dateFrom,
-        [FromQuery] DateTime? dateTo,
-        [FromQuery] Guid? categoryId,
-        [FromQuery] string groupBy = "day")
-        {
-            try
-            {
-                // Match SQL: treat provided dates as UTC; ignore date filter if either is missing
-                if (dateFrom.HasValue) dateFrom = DateTime.SpecifyKind(dateFrom.Value, DateTimeKind.Utc);
-                if (dateTo.HasValue) dateTo = DateTime.SpecifyKind(dateTo.Value, DateTimeKind.Utc);
-
-            
-                var orders = _context.RepairOrders
-                    .Where(r => !(r.Delind ?? false) && !(r.Cancelled ?? false) && r.CreatedAt != null);
-
-                if (dateFrom.HasValue && dateTo.HasValue)
-                    orders = orders.Where(r => r.CreatedAt >= dateFrom && r.CreatedAt <= dateTo);
-
-                // Flatten to parts and JOIN Products, then filter parts by allowed categories.
-                // This ensures sums/counts use ONLY the parts that belong to the chosen categories,
-                // exactly like your SQL.
-                var parts = from r in orders
-                            from p in r.RepairOrderParts
-                            where p.ProductId != null
-                            join pr in _context.Products on p.ProductId!.Value equals pr.Id
-                            where (categoryId == null) || (categoryId != null && pr.CategoryId == categoryId)
-                            select new
-                            {
-                                r.RepairOrderId,
-                                r.CreatedAt,
-                                Part = p,
-                                Product = pr
-                            };
-
-                object reportData;
-
-                switch (groupBy?.ToLowerInvariant())
-                {
-                    case "day":
-                        reportData = await parts
-                            .GroupBy(x => x.CreatedAt!.Value.Date)
-                            .Select(g => new
-                            {
-                                Date = g.Key,
-                                TotalSalesAmount = g.Sum(x => x.Part.Total ?? 0m),
-                                ItemsSold = g.Sum(x => (int?)x.Part.Quantity ?? 0),
-                                Orders = g.Select(x => x.RepairOrderId).Distinct().Count(),
-                                Products = g
-                                    .GroupBy(x => new { x.Part.ProductId, x.Part.ProductName })
-                                    .Select(pg => new
-                                    {
-                                        ProductId = pg.Key.ProductId,
-                                        ProductName = pg.Key.ProductName,
-                                        QtySold = pg.Sum(x => (int?)x.Part.Quantity ?? 0),
-                                        TotalSalesAmount = pg.Sum(x => x.Part.Total ?? 0m)
-                                    })
-                                    .OrderByDescending(x => x.TotalSalesAmount)
-                                    .ToList()
-                            })
-                            .OrderBy(x => x.Date)
-                            .ToListAsync();
-                        break;
-
-                    case "week":
-                        // Week-of-year grouping isn’t SQL-translatable in EF reliably; do it in-memory
-                        var weekParts = await parts.ToListAsync();
-                        var cal = CultureInfo.InvariantCulture.Calendar;
-
-                        reportData = weekParts
-                            .GroupBy(x =>
-                            {
-                                var dt = x.CreatedAt!.Value;
-                                var week = cal.GetWeekOfYear(dt, CalendarWeekRule.FirstFourDayWeek, DayOfWeek.Monday);
-                                return new { dt.Year, Week = week };
-                            })
-                            .Select(g => new
-                            {
-                                Week = $"{g.Key.Year}-W{g.Key.Week}",
-                                TotalSalesAmount = g.Sum(x => x.Part.Total ?? 0m),
-                                ItemsSold = g.Sum(x => (int?)x.Part.Quantity ?? 0),
-                                Orders = g.Select(x => x.RepairOrderId).Distinct().Count(),
-                                Products = g
-                                    .GroupBy(x => new { x.Part.ProductId, x.Part.ProductName })
-                                    .Select(pg => new
-                                    {
-                                        ProductId = pg.Key.ProductId,
-                                        ProductName = pg.Key.ProductName,
-                                        QtySold = pg.Sum(x => (int?)x.Part.Quantity ?? 0),
-                                        TotalSalesAmount = pg.Sum(x => x.Part.Total ?? 0m)
-                                    })
-                                    .OrderByDescending(x => x.TotalSalesAmount)
-                                    .ToList()
-                            })
-                            .OrderBy(x => x.Week)
-                            .ToList();
-                        break;
-
-                    case "month":
-                        reportData = await parts
-                            .GroupBy(x => new { x.CreatedAt!.Value.Year, x.CreatedAt!.Value.Month })
-                            .Select(g => new
-                            {
-                                Month = g.Key.Year + "-" + g.Key.Month,
-                                TotalSalesAmount = g.Sum(x => x.Part.Total ?? 0m),
-                                ItemsSold = g.Sum(x => (int?)x.Part.Quantity ?? 0),
-                                Orders = g.Select(x => x.RepairOrderId).Distinct().Count(),
-                                Products = g
-                                    .GroupBy(x => new { x.Part.ProductId, x.Part.ProductName })
-                                    .Select(pg => new
-                                    {
-                                        ProductId = pg.Key.ProductId,
-                                        ProductName = pg.Key.ProductName,
-                                        QtySold = pg.Sum(x => (int?)x.Part.Quantity ?? 0),
-                                        TotalSalesAmount = pg.Sum(x => x.Part.Total ?? 0m)
-                                    })
-                                    .OrderByDescending(x => x.TotalSalesAmount)
-                                    .ToList()
-                            })
-                            .OrderBy(x => x.Month)
-                            .ToListAsync();
-                        break;
-
-                    default:
-                        return BadRequest("Invalid groupBy parameter. Use 'day', 'week', or 'month'.");
-                }
-
-                return Ok(new
-                {
-                    filters = new { dateFrom, dateTo, categoryId, groupBy },
-                    reportData
-                });
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { message = "Failed to fetch sales report", error = ex.Message });
-            }
-        }
-        #endregion*/
 
 
-
-        #region Daily Sales Report
         #region Daily Sales Report
         [HttpGet("SalesReport")]
         public async Task<IActionResult> GetSalesReport(
@@ -1400,23 +744,25 @@ namespace BELEPOS.Controllers.v1
 
                 // Base RepairOrders
                 var orders = _context.RepairOrders
-                    .Where(r => !(r.Delind ?? false) && !(r.Cancelled ?? false) && r.CreatedAt != null);
+                    .Where(r => !(r.Delind ?? false) && !(r.Cancelled ?? false) && r.OrderDate != null);
 
+                /*if (dateFrom.HasValue && dateTo.HasValue)
+                    orders = orders.Where(r => r.CreatedAt >= dateFrom && r.CreatedAt <= dateTo);*/
                 if (dateFrom.HasValue && dateTo.HasValue)
-                    orders = orders.Where(r => r.CreatedAt >= dateFrom && r.CreatedAt <= dateTo);
+                    orders = orders.Where(r => r.OrderDate >= dateFrom && r.OrderDate <= dateTo);
                 if (!string.IsNullOrEmpty(paymentMethod))
                     orders = orders.Where(r => r.PaymentMethod == paymentMethod);
 
                 // Flatten parts + join Products + join Categories
                 var parts = from r in orders
                             from p in r.RepairOrderParts
-                            where p.ProductId != null && r.Delind == false
+                            where p.ProductId != null && r.Delind == false && p.Cancelled == false && p.Delind == false
                             join pr in _context.Products on p.ProductId!.Value equals pr.Id
                             join c in _context.Categories on pr.CategoryId equals c.Categoryid
                             select new
                             {
                                 r.RepairOrderId,
-                                r.CreatedAt,
+                                r.OrderDate,
                                 Part = p,
                                 Product = pr,
                                 Category = c
@@ -1443,8 +789,8 @@ namespace BELEPOS.Controllers.v1
                     {
                         TokenNumber = g.Key.Tokennumber,
                         CategoryName = g.Key.CategoryName,
-                        TotalPrice = g.Sum(x => x.Part.Price),
-                        LatestCreatedAt = g.Max(x => x.CreatedAt)
+                        TotalPrice = g.Sum(x => x.Part.Price * x.Part.Quantity),
+                        LatestCreatedAt = g.Max(x => x.OrderDate)
                     })
                     .OrderByDescending(x => x.LatestCreatedAt) // latest token first
                     .ThenByDescending(x => x.TokenNumber)     // tie-breaker
@@ -1456,7 +802,7 @@ namespace BELEPOS.Controllers.v1
                 {
                     case "day":
                         reportData = await parts
-                            .GroupBy(x => x.CreatedAt!.Value.Date)
+                            .GroupBy(x => x.OrderDate!.Value.Date)
                             .Select(g => new
                             {
                                 Date = g.Key,
@@ -1496,7 +842,7 @@ namespace BELEPOS.Controllers.v1
                         reportData = weekParts
                             .GroupBy(x =>
                             {
-                                var dt = x.CreatedAt!.Value;
+                                var dt = x.OrderDate!.Value;
                                 var week = cal.GetWeekOfYear(dt, CalendarWeekRule.FirstFourDayWeek, DayOfWeek.Monday);
                                 return new { dt.Year, Week = week };
                             })
@@ -1535,7 +881,7 @@ namespace BELEPOS.Controllers.v1
 
                     case "month":
                         reportData = await parts
-                            .GroupBy(x => new { x.CreatedAt!.Value.Year, x.CreatedAt!.Value.Month })
+                            .GroupBy(x => new { x.OrderDate!.Value.Year, x.OrderDate!.Value.Month })
                             .Select(g => new
                             {
                                 Month = g.Key.Year + "-" + g.Key.Month,
@@ -1594,65 +940,66 @@ namespace BELEPOS.Controllers.v1
         }
         #endregion
 
-        #endregion
+        
 
 
 
-
+        /*#region token by category
         [HttpGet("TokenListByCategory")]
         public async Task<IActionResult> GetTokenListByCategory(
             [FromQuery] Guid categoryId,
             [FromQuery] DateTime? dateFrom,
             [FromQuery] DateTime? dateTo)
+        {
+            try
             {
-                try
-                {
-                    if (dateFrom.HasValue) dateFrom = DateTime.SpecifyKind(dateFrom.Value, DateTimeKind.Utc);
-                    if (dateTo.HasValue) dateTo = DateTime.SpecifyKind(dateTo.Value, DateTimeKind.Utc);
+                if (dateFrom.HasValue) dateFrom = DateTime.SpecifyKind(dateFrom.Value, DateTimeKind.Utc);
+                if (dateTo.HasValue) dateTo = DateTime.SpecifyKind(dateTo.Value, DateTimeKind.Utc);
 
-                    var orders = _context.RepairOrders
-                        .Where(r => !(r.Delind ?? false) && !(r.Cancelled ?? false) && r.CreatedAt != null);
+                var orders = _context.RepairOrders
+                    .Where(r => !(r.Delind ?? false) && !(r.Cancelled ?? false) && r.CreatedAt != null);
 
-                    if (dateFrom.HasValue && dateTo.HasValue)
-                        orders = orders.Where(r => r.CreatedAt >= dateFrom && r.CreatedAt <= dateTo);
+                if (dateFrom.HasValue && dateTo.HasValue)
+                    orders = orders.Where(r => r.CreatedAt >= dateFrom && r.CreatedAt <= dateTo);
 
-                    var tokens = await (
-                        from r in orders
-                        from p in r.RepairOrderParts
-                        where p.ProductId != null && !string.IsNullOrEmpty(p.Tokennumber)
-                        join pr in _context.Products on p.ProductId!.Value equals pr.Id
-                        join c in _context.Categories on pr.CategoryId equals c.Categoryid
-                        where c.Categoryid == categoryId
-                        select new
-                        {
-                            p.Tokennumber,
-                            r.CreatedAt,
-                            CategoryName = c.CategoryName
-                        }
-                    )
-                    .Distinct()
-                    .OrderBy(x => x.CreatedAt)
-                    .ToListAsync();
-
-                    return Ok(new
+                var tokens = await (
+                    from r in orders
+                    from p in r.RepairOrderParts
+                    where p.ProductId != null && !string.IsNullOrEmpty(p.Tokennumber)
+                    join pr in _context.Products on p.ProductId!.Value equals pr.Id
+                    join c in _context.Categories on pr.CategoryId equals c.Categoryid
+                    where c.Categoryid == categoryId
+                    select new
                     {
-                        CategoryId = categoryId,
-                        CategoryName = tokens.FirstOrDefault()?.CategoryName,
-                        Tokens = tokens.Select(t => new
-                        {
-                            TokenNumber = t.Tokennumber,
-                            CreatedAt = t.CreatedAt
-                        })
-                    });
-                }
-                catch (Exception ex)
+                        p.Tokennumber,
+                        r.CreatedAt,
+                        CategoryName = c.CategoryName
+                    }
+                )
+                .Distinct()
+                .OrderBy(x => x.CreatedAt)
+                .ToListAsync();
+
+                return Ok(new
                 {
-                    return StatusCode(500, new { message = "Failed to fetch token list", error = ex.Message });
-                }
+                    CategoryId = categoryId,
+                    CategoryName = tokens.FirstOrDefault()?.CategoryName,
+                    Tokens = tokens.Select(t => new
+                    {
+                        TokenNumber = t.Tokennumber,
+                        CreatedAt = t.CreatedAt
+                    })
+                });
             }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Failed to fetch token list", error = ex.Message });
+            }
+        }
+        #endregion*/
 
 
-
+        #region receipt by token
         [HttpGet("ReceiptByToken")]
         public async Task<IActionResult> GetReceiptByToken([FromQuery] string tokenNumber)
         {
@@ -1704,10 +1051,12 @@ namespace BELEPOS.Controllers.v1
                 return StatusCode(500, new { message = "Failed to fetch receipt", error = ex.Message });
             }
         }
-        [HttpGet("ReceiptByTokenV2")]
-        public async Task<IActionResult> GetReceiptByTokenV2(
-    [FromQuery] string tokenNumber,
-    [FromQuery] DateTime? date = null)
+        #endregion
+
+        #region
+
+        /*[HttpGet("ReceiptByTokenV2")]
+        public async Task<IActionResult> GetReceiptByTokenV2([FromQuery] string tokenNumber, [FromQuery] DateTime? date = null)
         {
             try
             {
@@ -1727,6 +1076,7 @@ namespace BELEPOS.Controllers.v1
                     {
                         r.RepairOrderId,
                         r.CreatedAt,
+                        r.PaymentMethod,        // Added PaymentMethod here
                         p.Tokennumber,
                         ProductId = pr.Id,
                         ProductName = p.ProductName,
@@ -1744,6 +1094,7 @@ namespace BELEPOS.Controllers.v1
                 {
                     TokenNumber = tokenNumber,
                     Date = targetDate,  // Return applied date filter
+                    PaymentMethod = items.First().PaymentMethod, // Include payment method
                     Categories = items.Select(i => i.CategoryName).Distinct().ToList(),
                     CreatedAt = items.First().CreatedAt,
                     Items = items.Select(i => new
@@ -1764,7 +1115,626 @@ namespace BELEPOS.Controllers.v1
             {
                 return StatusCode(500, new { message = "Failed to fetch receipt", error = ex.Message });
             }
+        }*/
+
+
+        /*[HttpGet("ReceiptByTokenV2")]
+        public async Task<IActionResult> GetReceiptByTokenV2([FromQuery] string tokenNumber, [FromQuery] DateTime? date = null)
+        {
+            try
+            {
+                // Ensure UTC Kind
+                var targetDate = DateTime.SpecifyKind((date?.Date ?? DateTime.UtcNow.Date), DateTimeKind.Utc);
+
+                var items = await (
+                    from r in _context.RepairOrders
+                    from p in r.RepairOrderParts
+                    where p.Tokennumber == tokenNumber
+                          && p.ProductId != null
+                          && p.OrderDate.HasValue
+                          && p.OrderDate.Value.Date.ToString("yyyy-MM-dd") == targetDate.ToString("yyyy-MM-dd")
+                    join pr in _context.Products on p.ProductId!.Value equals pr.Id
+                    join c in _context.Categories on pr.CategoryId equals c.Categoryid
+                    select new
+                    {
+                        r.RepairOrderId,
+                        r.CreatedAt,
+                        r.PaymentMethod,
+                        p.Tokennumber,
+                        ProductId = pr.Id,
+                        ProductName = p.ProductName,
+                        Quantity = p.Quantity,
+                        Price = p.Price,
+                        Total = p.Total,
+                        CategoryName = c.CategoryName,
+                        OrderDate = r.OrderDate
+                    }
+                ).ToListAsync();
+
+                if (!items.Any())
+                    return NotFound(new { message = "No items found for this token on the given date." });
+
+                var orderDate = items.First().OrderDate.HasValue
+                    ? DateTime.SpecifyKind(items.First().OrderDate.Value, DateTimeKind.Utc)
+                    : DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Utc);
+
+                var receipt = new
+                {
+                    TokenNumber = tokenNumber,
+                    Date = targetDate,
+                    PaymentMethod = items.First().PaymentMethod,
+                    Categories = items.Select(i => i.CategoryName).Distinct().ToList(),
+                    CreatedAt = orderDate,
+                    Items = items.Select(i => new
+                    {
+                        i.ProductId,
+                        i.ProductName,
+                        i.Quantity,
+                        i.Price,
+                        i.Total,
+                        i.CategoryName
+                    }).ToList(),
+                    ReceiptTotal = items.Sum(i => i.Total ?? 0m)
+                };
+
+                return Ok(receipt);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Failed to fetch receipt", error = ex.ToString() });
+            }
+        }*/
+
+
+        [HttpGet("ReceiptByTokenV2")]
+        public async Task<IActionResult> GetReceiptByTokenV2([FromQuery] string tokenNumber, [FromQuery] DateTime? date = null)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(tokenNumber))
+                    return BadRequest(new { message = "Token number is required." });
+
+                // Ensure UTC date and truncate time
+                var targetDate = date.HasValue
+                    ? DateTime.SpecifyKind(date.Value.Date, DateTimeKind.Utc)
+                    : DateTime.UtcNow.Date;
+
+                // Start and end of the day (UTC)
+                var startDate = targetDate;
+                var endDate = startDate.AddDays(1);
+
+                // Query items
+                var items = await (
+                    from r in _context.RepairOrders
+                    from p in r.RepairOrderParts
+                    where p.Tokennumber == tokenNumber
+                          && p.ProductId != null
+                          && p.OrderDate.HasValue
+                          && p.OrderDate >= startDate
+                          && p.OrderDate < endDate
+                          && r.Delind == false && p.Delind==false && p.Cancelled == false && r.Cancelled ==false
+                    join pr in _context.Products on p.ProductId.Value equals pr.Id
+                    join c in _context.Categories on pr.CategoryId equals c.Categoryid
+                    select new
+                    {
+                        r.RepairOrderId,
+                        r.CreatedAt,
+                        r.PaymentMethod,
+                        p.Tokennumber,
+                        ProductId = pr.Id,
+                        ProductName = p.ProductName,
+                        Quantity = p.Quantity,
+                        Price = p.Price,
+                        Total = p.Total,
+                        CategoryName = c.CategoryName,
+                        OrderDate = r.OrderDate
+                    }
+                ).ToListAsync();
+
+                if (!items.Any())
+                    return NotFound(new { message = "No items found for this token on the given date." });
+
+                var firstItem = items.First();
+
+                var receipt = new
+                {
+                    TokenNumber = tokenNumber,
+                    Date = targetDate.ToString("yyyy-MM-dd"), // no 00:00:00
+                    PaymentMethod = firstItem.PaymentMethod,
+                    Categories = items.Select(i => i.CategoryName).Distinct().ToList(),
+                    CreatedAt = DateTime.SpecifyKind(firstItem.OrderDate ?? DateTime.UtcNow, DateTimeKind.Utc),
+                    Items = items.Select(i => new
+                    {
+                        i.ProductId,
+                        i.ProductName,
+                        i.Quantity,
+                        i.Price,
+                        i.Total,
+                        i.CategoryName
+                    }).ToList(),
+                    ReceiptTotal = items.Sum(i => i.Total ?? 0m)
+                };
+
+                return Ok(receipt);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Failed to fetch receipt", error = ex.ToString() });
+            }
         }
 
+
+
+
+
+        #endregion
+
+        /*[HttpDelete("CancelOrder")] public async Task<IActionResult> CancelOrder([FromQuery] string tokenNumber, [FromQuery] DateTime? date = null)
+        {
+            try
+            {
+                // If no date provided, use today's date (UTC safe)
+                var targetDate = date?.Date ?? DateTime.UtcNow.Date;
+                var orders = await _context.RepairOrders
+                        .Include(r => r.RepairOrderParts) // include parts to update them together
+                        .Where(r => r.RepairOrderParts.Any(p =>
+                            p.Tokennumber == tokenNumber &&
+                            p.CreatedAt.HasValue &&
+                            p.CreatedAt.Value.Date == targetDate))
+                        .ToListAsync();
+
+                if (!orders.Any())
+                    return NotFound(new { message = "No repair orders found for this token on the given date." });
+
+                // Soft delete (mark Delind = true)
+                foreach (var order in orders)
+                {
+                    //order.Cancelled = true;
+                    order.WebUpload = false;
+                    //order.Delind = true;
+                    _context.RepairOrders.Update(order);
+
+                    // Also mark all parts of this order
+                    foreach (var part in order.RepairOrderParts)
+                    {
+                        part.Cancelled = true;
+                        part.Delind = true;
+                        _context.RepairOrderParts.Update(part);
+                    }
+                }
+
+                await _context.SaveChangesAsync();
+
+                return Ok(new
+                {
+                    message = "Receipt deleted successfully.",
+                    TokenNumber = tokenNumber,
+                    Date = targetDate,
+                    DeletedOrders = orders.Select(o => o.RepairOrderId)
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Failed to delete receipt", error = ex.Message });
+            }
+        }*/
+
+
+
+        [HttpDelete("CancelOrder")]
+        public async Task<IActionResult> CancelOrder([FromQuery] string tokenNumber, [FromQuery] DateTime? date = null)
+        {
+            try
+            {
+                var targetDate = date?.Date ?? DateTime.UtcNow.Date;
+
+                var orders = await _context.RepairOrders
+                    .Include(r => r.RepairOrderParts)
+                    .Where(r => r.RepairOrderParts.Any(p =>
+                        p.Tokennumber == tokenNumber &&
+                        p.CreatedAt.HasValue &&
+                        p.CreatedAt.Value.Date == targetDate))
+                    .ToListAsync();
+
+                if (!orders.Any())
+                    return NotFound(new { message = "No repair orders found for this token on the given date." });
+
+                foreach (var order in orders)
+                {
+                    // Mark matching parts as cancelled/deleted
+                    foreach (var part in order.RepairOrderParts.Where(p =>
+                                 p.Tokennumber == tokenNumber &&
+                                 p.CreatedAt.HasValue &&
+                                 p.CreatedAt.Value.Date == targetDate))
+                    {
+                        part.Cancelled = true;
+                        part.Delind = true;
+                        order.WebUpload = false;
+                        _context.RepairOrderParts.Update(part);
+                    }
+
+                    // ✅ Check if *all* parts in the order are cancelled/deleted
+                    bool allPartsCancelled = order.RepairOrderParts.All(p => p.Cancelled==true && p.Delind==true);
+
+                    if (allPartsCancelled)
+                    {
+                        order.Cancelled = true;
+                        order.Delind = true;
+                        order.WebUpload = false;
+                        _context.RepairOrders.Update(order);
+                    }
+                }
+
+                await _context.SaveChangesAsync();
+
+                return Ok(new
+                {
+                    message = "Receipt deleted successfully.",
+                    TokenNumber = tokenNumber,
+                    Date = targetDate,
+                    DeletedOrders = orders.Select(o => o.RepairOrderId)
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Failed to delete receipt", error = ex.Message });
+            }
+        }
+
+
+
+
+
+
+
+
+
+        // ------------------ SYNC TO CENTRAL ------------------
+        /*private async Task<SyncResult> SyncOnceToCentralAsync(CancellationToken ct)
+        {
+            var sw = Stopwatch.StartNew();
+            var url = _config.GetValue<string>("OrderSync:CentralUrl");
+            var batchSize = _config.GetValue<int?>("OrderSync:BatchSize") ?? 500;
+
+            if (string.IsNullOrWhiteSpace(url))
+            {
+                var err = "OrderSync:CentralUrl not configured.";
+                _logger.LogWarning(err);
+                await WriteLogAsync("RepairOrder", 0, "Failed", err, ct);
+                return new SyncResult { Success = false, Error = err };
+            }
+
+            try
+            {
+                // Pull unsynced orders
+                var batch = await _context.RepairOrders
+                    .Include(r => r.RepairOrderParts)
+                    .Include(r => r.OrderPayments)
+                    .AsNoTracking()
+                    .Where(r => r.WebUpload != true && (r.Delind == null || r.Delind == false))
+                    .OrderBy(r => r.CreatedAt)
+                    .Take(batchSize)
+                    .ToListAsync(ct);
+
+                await WriteLogAsync("RepairOrder", batch.Count, batch.Count == 0 ? "NoData" : "Pulled", null, ct);
+
+                if (batch.Count == 0)
+                {
+                    sw.Stop();
+                    return new SyncResult { Success = true, Orders = 0, Message = "Nothing to sync.", RanAtUtc = DateTime.UtcNow };
+                }
+
+                // Build DTOs with proper DateTime handling
+                var repairOrderDtos = batch.Select(r => new RepairOrderDto
+                {
+                    RepairOrderId = r.RepairOrderId,
+                    OrderNumber = r.OrderNumber,
+                    Paid = r.Paid,
+                    PaymentMethod = r.PaymentMethod,
+                    IssueDescription = r.IssueDescription,
+                    RepairStatus = r.RepairStatus,
+                    ReceivedDate = ToUtc(r.ReceivedDate),
+                    ExpectedDeliveryDate = ToUtc(r.ExpectedDeliveryDate),
+                    StoreId = r.StoreId,
+                    CreatedAt = ToUtc(r.CreatedAt),
+                    UpdatedAt = ToUtc(r.UpdatedAt),
+                    Delind = r.Delind,
+                    CustomerId = r.CustomerId,
+                    UserId = r.UserId ?? Guid.Empty,
+                    IsFinalSubmit = r.Isfinalsubmit,
+                    TotalAmount = r.TotalAmount,
+                    ProductType = r.ProductType,
+                    Cancelled = r.Cancelled,
+                    Contactmethod = string.IsNullOrEmpty(r.Contactmethod)
+                        ? new List<string>()
+                        : r.Contactmethod.Split(',').ToList(),
+                    PaidAmount = r.Paidamount,
+                    DiscountType = r.DiscountType,
+                    DiscountValue = r.DiscountValue,
+                    TaxPercent = r.TaxPercent,
+                    OrderType = r.OrderType,
+
+                    Parts = r.RepairOrderParts.Select(p => new RepairOrderPartDto
+                    {
+                        Id = Guid.NewGuid(),
+                        RepairOrderId = r.RepairOrderId,
+                        ProductId = p.ProductId,
+                        ProductName = p.ProductName,
+                        PartDescription = p.PartDescription,
+                        DeviceType = p.DeviceType,
+                        DeviceModel = p.DeviceModel,
+                        SerialNumber = p.SerialNumber,
+                        Quantity = p.Quantity,
+                        Price = p.Price,
+                        Total = p.Total,
+                        CreatedAt = ToUnspecified(p.CreatedAt),
+                        UpdatedAt = ToUnspecified(p.UpdatedAt),
+                        BrandName = p.BrandName,
+                        ProductType = p.ProductType,
+                        Cancelled = p.Cancelled,
+                        TokenNumber = p.Tokennumber,
+                        SubcategoryId = p.Subcategoryid ?? Guid.Empty
+                    }).ToList(),
+
+                    Payments = r.OrderPayments.Select(op => new OrderPaymentDto
+                    {
+                        PaymentId = op.Paymentid,
+                        RepairOrderId = op.Repairorderid,
+                        Amount = op.Amount,
+                        PaymentMethod = op.PaymentMethod,
+                        PaidAt = ToUnspecified(op.PaidAt),
+                        CreatedAt = ToUnspecified(op.CreatedAt),
+                        PartialPayment = op.PartialPayment,
+                        TotalAmount = op.TotalAmount,
+                        FullyPaid = op.FullyPaid,
+                        RemainingAmount = op.Remainingamount
+                    }).ToList()
+                }).ToList();
+
+                var payload = new OrderSyncEnvelope
+                {
+                    SourceSystem = "LOCAL",
+                    GeneratedUtc = DateTime.UtcNow,
+                    RepairOrders = repairOrderDtos
+                };
+
+                var json = JsonSerializer.Serialize(payload, new JsonSerializerOptions
+                {
+                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+                });
+
+                using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(100) };
+                using var content = new StringContent(json, Encoding.UTF8, "application/json");
+                var resp = await http.PostAsync(url, content, ct);
+                var respText = await resp.Content.ReadAsStringAsync(ct);
+
+                if (!resp.IsSuccessStatusCode)
+                {
+                    sw.Stop();
+                    var errMsg = $"Central API {(int)resp.StatusCode} {resp.ReasonPhrase}: {respText}";
+                    _logger.LogError("Order sync failed: {Status} {Reason}. Body: {Body}", (int)resp.StatusCode, resp.ReasonPhrase, respText);
+                    await WriteLogAsync("RepairOrder", batch.Count, "Failed", Trunc(errMsg, 1000), ct);
+                    return new SyncResult { Success = false, Error = errMsg, RanAtUtc = DateTime.UtcNow };
+                }
+
+                foreach (var r in batch)
+                    r.WebUpload = true;
+
+                _context.RepairOrders.UpdateRange(batch);
+                await _context.SaveChangesAsync(ct);
+
+                sw.Stop();
+                await WriteLogAsync("RepairOrder", batch.Count, "Flipped", $"ElapsedMs={sw.ElapsedMilliseconds}", ct);
+
+                return new SyncResult
+                {
+                    Success = true,
+                    Orders = batch.Count,
+                    Message = string.IsNullOrWhiteSpace(respText) ? "Synced." : respText,
+                    RanAtUtc = DateTime.UtcNow
+                };
+            }
+            catch (Exception ex)
+            {
+                //sw.Stop();
+                _logger.LogError(ex, "SyncOnceToCentralAsync failed.");
+                await WriteLogAsync("RepairOrder", 0, "Failed", Trunc($"{ex.Message} | {ex.StackTrace}", 1000), ct);
+                return new SyncResult { Success = false, Error = ex.Message, RanAtUtc = DateTime.UtcNow };
+            }
+        }*/
+
+
+        //comment by Sunit
+
+        /*[HttpGet("OrderProductSync")]
+        public async Task<object> OrderProductSync([FromBody] OrderSyncEnvelope payload, CancellationToken ct)
+        {
+            if (payload?.RepairOrders == null || payload.RepairOrders.Count == 0)
+                return BadRequest(new { success = false, message = "Empty payload." });
+
+            int importedOrders = 0;
+            int importedParts = 0;
+            int importedPayments = 0;
+
+            await using var tx = await _centralDB.Database.BeginTransactionAsync(ct);
+            try
+            {
+                foreach (var ro in payload.RepairOrders)
+                {
+                    var entity = await _centralDB.RepairOrders
+                        .FirstOrDefaultAsync(x => x.RepairOrderId == ro.RepairOrderId, ct);
+
+                    if (entity == null)
+                    {
+                        entity = new RepairOrder { RepairOrderId = ro.RepairOrderId };
+                        _centralDB.RepairOrders.Add(entity);
+                    }
+
+                    // Update fields (UTC for RepairOrders)
+                    entity.OrderNumber = ro.OrderNumber;
+                    entity.Paid = ro.Paid;
+                    entity.PaymentMethod = ro.PaymentMethod;
+                    entity.IssueDescription = ro.IssueDescription;
+                    entity.RepairStatus = ro.RepairStatus;
+                    entity.ReceivedDate = ro.ReceivedDate;
+                    entity.ExpectedDeliveryDate = ro.ExpectedDeliveryDate;
+                    entity.StoreId = ro.StoreId;
+                    entity.CreatedAt = ro.CreatedAt;
+                    entity.UpdatedAt = DateTime.UtcNow;
+                    entity.Delind = ro.Delind;
+                    entity.CustomerId = ro.CustomerId;
+                    entity.UserId = ro.UserId;
+                    entity.Isfinalsubmit = ro.IsFinalSubmit;
+                    entity.TotalAmount = ro.TotalAmount;
+                    entity.ProductType = ro.ProductType;
+                    entity.Cancelled = ro.Cancelled;
+                    entity.Contactmethod = ro.Contactmethod != null ? string.Join(",", ro.Contactmethod) : null;
+                    entity.Paidamount = ro.PaidAmount;
+                    entity.DiscountType = ro.DiscountType;
+                    entity.DiscountValue = ro.DiscountValue;
+                    entity.TaxPercent = ro.TaxPercent;
+                    entity.Status = ro.RepairStatus;
+                    entity.OrderType = ro.OrderType;
+
+                    importedOrders++;
+
+                    // --- UPSERT REPAIR ORDER PARTS (Unspecified) ---
+                    if (ro.Parts != null && ro.Parts.Count > 0)
+                    {
+                        foreach (var p in ro.Parts)
+                        {
+                            var existingPart = await _centralDB.RepairOrderParts
+                                .FirstOrDefaultAsync(x => x.Id == p.Id, ct);
+
+                            if (existingPart != null)
+                            {
+                                _centralDB.Entry(existingPart).CurrentValues.SetValues(new RepairOrderPart
+                                {
+                                    RepairOrderId = ro.RepairOrderId,
+                                    ProductId = p.ProductId,
+                                    ProductName = p.ProductName,
+                                    PartDescription = p.PartDescription,
+                                    DeviceType = p.DeviceType,
+                                    DeviceModel = p.DeviceModel,
+                                    SerialNumber = p.SerialNumber,
+                                    Quantity = p.Quantity,
+                                    Price = p.Price,
+                                    Total = p.Total,
+                                    CreatedAt = ToUnspecified(p.CreatedAt),
+                                    UpdatedAt = DateTime.UtcNow,
+                                    BrandName = p.BrandName,
+                                    ProductType = p.ProductType,
+                                    Cancelled = p.Cancelled,
+                                    Tokennumber = p.TokenNumber,
+                                    Subcategoryid = p.SubcategoryId
+                                });
+                            }
+                            else
+                            {
+                                var newPart = new RepairOrderPart
+                                {
+                                    Id = p.Id == Guid.Empty ? Guid.NewGuid() : p.Id,
+                                    RepairOrderId = ro.RepairOrderId,
+                                    ProductId = p.ProductId,
+                                    ProductName = p.ProductName,
+                                    PartDescription = p.PartDescription,
+                                    DeviceType = p.DeviceType,
+                                    DeviceModel = p.DeviceModel,
+                                    SerialNumber = p.SerialNumber,
+                                    Quantity = p.Quantity,
+                                    Price = p.Price,
+                                    Total = p.Total,
+                                    CreatedAt = ToUnspecified(p.CreatedAt),
+                                    UpdatedAt = ToUnspecified(p.UpdatedAt),
+                                    BrandName = p.BrandName,
+                                    ProductType = p.ProductType,
+                                    Cancelled = p.Cancelled,
+                                    Tokennumber = p.TokenNumber,
+                                    Subcategoryid = p.SubcategoryId
+                                };
+                                _centralDB.RepairOrderParts.Add(newPart);
+                                importedParts++;
+                            }
+                        }
+                    }
+
+                    // --- UPSERT ORDER PAYMENTS (Unspecified) ---
+                    if (ro.Payments != null && ro.Payments.Count > 0)
+                    {
+                        foreach (var pay in ro.Payments)
+                        {
+                            var existingPay = await _centralDB.OrderPayments
+                                .FirstOrDefaultAsync(x => x.Paymentid == pay.PaymentId, ct);
+
+                            if (existingPay != null)
+                            {
+                                _centralDB.Entry(existingPay).CurrentValues.SetValues(new OrderPayment
+                                {
+                                    Paymentid = pay.PaymentId,
+                                    Repairorderid = pay.RepairOrderId,
+                                    Amount = pay.Amount,
+                                    PaymentMethod = pay.PaymentMethod,
+                                    PaidAt = ToUnspecified(pay.PaidAt),
+                                    CreatedAt = ToUnspecified(pay.CreatedAt),
+                                    PartialPayment = pay.PartialPayment,
+                                    TotalAmount = pay.TotalAmount,
+                                    FullyPaid = pay.FullyPaid,
+                                    Remainingamount = pay.RemainingAmount
+                                });
+                            }
+                            else
+                            {
+                                var newPay = new OrderPayment
+                                {
+                                    Paymentid = pay.PaymentId == Guid.Empty ? Guid.NewGuid() : pay.PaymentId,
+                                    Repairorderid = pay.RepairOrderId,
+                                    Amount = pay.Amount,
+                                    PaymentMethod = pay.PaymentMethod,
+                                    PaidAt = ToUnspecified(pay.PaidAt),
+                                    CreatedAt = ToUnspecified(pay.CreatedAt),
+                                    PartialPayment = pay.PartialPayment,
+                                    TotalAmount = pay.TotalAmount,
+                                    FullyPaid = pay.FullyPaid,
+                                    Remainingamount = pay.RemainingAmount
+                                };
+                                _centralDB.OrderPayments.Add(newPay);
+                                importedPayments++;
+                            }
+                        }
+                    }
+                }
+
+                await _centralDB.SaveChangesAsync(ct);
+                await tx.CommitAsync(ct);
+
+                return Ok(new { success = true, message = "Order batch imported." });
+            }
+            catch (Exception ex)
+            {
+                await tx.RollbackAsync(ct);
+                return StatusCode(500, new
+                {
+                    success = false,
+                    message = "Failed to import batch.",
+                    error = ex.Message,
+                    inner = ex.InnerException?.Message,
+                    stack = ex.StackTrace
+                });
+            }
+        }*/
+
+        //end
+
+
+
+
+
+
+
+
+
+
+
     }
+
 }

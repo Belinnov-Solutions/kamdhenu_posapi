@@ -43,5 +43,7 @@ public partial class RepairOrderPart
 
     public Guid? Subcategoryid { get; set; }
 
+    public DateTime? OrderDate { get; set; }
+
     public virtual RepairOrder RepairOrder { get; set; } = null!;
 }

@@ -57,7 +57,11 @@ public partial class RepairOrder
 
     public string? OrderType { get; set; }
 
+    public DateTime? OrderDate { get; set; }
+
     public virtual ICollection<ChecklistResponse> ChecklistResponses { get; set; } = new List<ChecklistResponse>();
+
+    public virtual ICollection<OrderPayment> OrderPayments { get; set; } = new List<OrderPayment>();
 
     public virtual ICollection<RepairOrderPart> RepairOrderParts { get; set; } = new List<RepairOrderPart>();
 }

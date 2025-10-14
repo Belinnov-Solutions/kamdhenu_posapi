@@ -12,7 +12,7 @@ using System.Threading.Tasks;
 
 namespace BELEPOS.Service
 {
-    public class OrderSyncWorker : BackgroundService
+    /*public class OrderSyncWorker : BackgroundService
     {
         private readonly IServiceProvider _sp;
         private readonly ILogger<OrderSyncWorker> _log;
@@ -178,7 +178,6 @@ namespace BELEPOS.Service
                                 Entity = "Products",
                                 RecordsProcessed = 0,
                                 Status = "Error",
-                                //ErrorMessage = $"Product {prod.Id}: {ex.Message}"
                                 ErrorMessage = $"Product {prod.Id}: {ex.Message}\n{ex.StackTrace}",
                             });
                             await local.SaveChangesAsync(ct);
@@ -212,11 +211,10 @@ namespace BELEPOS.Service
                     Entity = "Batch",
                     RecordsProcessed = 0,
                     Status = "Error",
-                    //ErrorMessage = ex.ToString()
                     ErrorMessage = $"{ex.Message}\n{ex.StackTrace}",
                 });
                 await local2.SaveChangesAsync(ct);
             }
         }
-    }
+    }*/
 }

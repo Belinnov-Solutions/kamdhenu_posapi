@@ -325,6 +325,59 @@ namespace BELEPOS.Controllers.v1
 
         #endregion
 
+
+
+        [HttpPost("SaveReceiptSettings")]
+        public async Task<IActionResult> SaveReceiptSettings([FromBody] List<ReceiptSettingDto> receiptSettings)
+        {
+            if (receiptSettings == null || !receiptSettings.Any())
+                return BadRequest("No receipt settings provided.");
+
+            foreach (var setting in receiptSettings)
+            {
+                if (string.IsNullOrWhiteSpace(setting.ReceiptName))
+                    continue;
+
+                // Find existing receipt
+                var existing = await _context.PrintReceiptSettings
+                    .FirstOrDefaultAsync(x => x.ReceiptName.ToLower() == setting.ReceiptName.ToLower() && !x.IsDeleted);
+
+                if (existing != null)
+                {
+                    existing.IsActive = setting.IsActive;
+                }
+                // Skip if receipt does not exist
+            }
+
+            await _context.SaveChangesAsync();
+            return Ok(new { message = "Receipt settings updated successfully." });
+        }
+
+
+
+
+        [HttpGet("GetReceiptSetting")]
+        public async Task<IActionResult> GetReceiptList(CancellationToken ct)
+        {
+            var receipts = await _context.PrintReceiptSettings
+                .Where(x => !x.IsDeleted)
+                .Select(x => new
+                {
+                    x.Id,
+                    x.ReceiptName,
+                    x.IsActive
+                })
+                .OrderBy(x => x.ReceiptName)
+                .ToListAsync(ct);
+
+            if (receipts == null || receipts.Count == 0)
+                return NotFound("No receipts found.");
+            //return Ok(message = "", receipts);
+            return Ok(new { message = "Receipt Setting list feched successfully!", data = receipts });
+        }
+
+
+
     }
 
 

@@ -2,7 +2,10 @@
 using BELEPOS.Entity;
 using DocumentFormat.OpenXml.Bibliography;
 using DocumentFormat.OpenXml.Office2016.Excel;
+using DocumentFormat.OpenXml.Spreadsheet;
+using Microsoft.Build.Logging;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using Razor.Templating.Core;
 using Razor.Templating.Core;
 using System;
@@ -14,22 +17,23 @@ using System.Net;
 using System.Net.Mail;
 using System.Text;
 
-
 namespace BELEPOS.Helper
 {
     public class EPoshelper
     {
 
         private readonly BeleposContext _context;
+        private readonly CentralDbContext _centralDB;
 
         private const int ReceiptWidth = 42;
         private readonly IConfiguration _config;
 
-        public EPoshelper(BeleposContext context, IConfiguration config)
+        public EPoshelper(BeleposContext context, CentralDbContext centralDbContext, IConfiguration config)
         {
 
             _context = context;
             _config = config;
+            _centralDB = centralDbContext;
         }
 
 
@@ -120,7 +124,7 @@ namespace BELEPOS.Helper
         #endregion
 
         #region generate order number
-        public async Task<string> GenerateOrderNumberAsync()
+        /*public async Task<string> GenerateOrderNumberAsync()
         {
             // Define prefix format like "ORD-250718"
             string prefix = $"ORD-{DateTime.UtcNow:yyMMdd}";
@@ -166,7 +170,113 @@ namespace BELEPOS.Helper
             while (await _context.RepairOrders.AnyAsync(o => o.OrderNumber == newOrderNumber));
 
             return newOrderNumber;
+        }*/
+
+
+        /*public async Task<string> GenerateOrderNumberAsync(IConfiguration _config)
+        {
+            //string prefix = "Kamdhenu";
+
+            string prefix = _config.GetValue<string>("AppSettings:PrefixOrderNumber");
+
+            var today = DateTime.Now;
+
+            // Determine financial year
+            int fyStartYear, fyEndYear;
+            if (today.Month >= 4) // April → December
+            {
+                fyStartYear = today.Year;
+                fyEndYear = today.Year + 1;
+            }
+            else // January → March
+            {
+                fyStartYear = today.Year - 1;
+                fyEndYear = today.Year;
+            }
+
+            // Financial year string, e.g., "2526"
+            string fyStr = $"{fyStartYear % 100:D2}{fyEndYear % 100:D2}";
+
+            // Fetch existing orders for this financial year
+            var existingOrders = await _context.RepairOrders
+                .Where(o => o.OrderNumber.StartsWith($"{prefix}/{fyStr}/"))
+                .Select(o => o.OrderNumber)
+                .ToListAsync();
+
+            // Extract numeric suffix
+            int maxSuffix = existingOrders
+                .Select(n =>
+                {
+                    if (string.IsNullOrEmpty(n)) return 0;
+                    var parts = n.Split('/');
+                    if (parts.Length != 3) return 0;
+                    return int.TryParse(parts[2], out int num) ? num : 0;
+                })
+                .DefaultIfEmpty(0)
+                .Max();
+
+            // Next sequential number
+            int nextSuffix = maxSuffix + 1;
+
+            // Format 8-digit suffix
+            string suffixStr = nextSuffix.ToString("D8");
+
+            // Final order number
+            string newOrderNumber = $"{prefix}-{fyStr}-{suffixStr}";
+
+            return newOrderNumber;
+        }*/
+
+
+        public async Task<string> GenerateOrderNumberAsync(IConfiguration _config)
+        {
+            // Prefix from config
+            string prefix = _config.GetValue<string>("AppSettings:PrefixOrderNumber");
+
+            var today = DateTime.Now;
+
+            // Determine financial year
+            int fyStartYear, fyEndYear;
+            if (today.Month >= 4) // April → December
+            {
+                fyStartYear = today.Year;
+                fyEndYear = today.Year + 1;
+            }
+            else // January → March
+            {
+                fyStartYear = today.Year - 1;
+                fyEndYear = today.Year;
+            }
+
+            // Financial year string, e.g., "2526"
+            string fyStr = $"{fyStartYear % 100:D2}{fyEndYear % 100:D2}";
+
+            // Fetch latest order for this financial year
+            var latestOrder = await _context.RepairOrders
+                .Where(o => o.OrderNumber.StartsWith($"{prefix}/{fyStr}/"))
+                .OrderByDescending(o => o.CreatedAt) // latest first
+                .Select(o => o.OrderNumber)
+                .FirstOrDefaultAsync();
+
+            int nextSuffix = 1; // default if no orders exist
+
+            if (!string.IsNullOrEmpty(latestOrder))
+            {
+                // Split order number like "Kamdhenu/2526/25"
+                var parts = latestOrder.Split('/');
+                if (parts.Length == 3 && int.TryParse(parts[2], out int lastSuffix))
+                {
+                    nextSuffix = lastSuffix + 1; // increment based on latest
+                }
+            }
+
+            // Final order number
+            string newOrderNumber = $"{prefix}/{fyStr}/{nextSuffix}";
+
+            return newOrderNumber;
         }
+
+
         #endregion
 
 
@@ -203,40 +313,7 @@ namespace BELEPOS.Helper
         #endregion
 
 
-        /*public async Task SaveOrUpdateProductVariants(Guid productId, List<ProductVariantsDto> variants)
-        {
-            if (variants == null || !variants.Any()) return;
-
-            var existingVariants = await _context.ProductVariants
-                .Where(v => v.ProductId == productId)
-                .ToListAsync();
-
-            // Soft delete existing variants
-            foreach (var v in existingVariants)
-            {
-                v.Delind = true;
-                v.UpdatedAt = DateTime.UtcNow;
-            }
-
-            // Add new variants
-            foreach (var variant in variants)
-            {
-                var newVariant = new ProductVariant
-                {
-                    ProductId = productId,
-                    VariantName = variant.VariantName,
-                    Sku = variant.Sku,
-                    Price = variant.Price,
-                    Quantity = variant.Quantity,
-                    Delind = false,
-                    CreatedAt = DateTime.UtcNow,
-                    UpdatedAt = DateTime.UtcNow
-                };
-                _context.ProductVariants.Add(newVariant);
-            }
-
-            await _context.SaveChangesAsync();
-        }*/
+        
 
         public async Task SaveOrUpdateProductVariants(Guid productId, List<ProductVariantsDto> variants)
         {
@@ -393,7 +470,8 @@ namespace BELEPOS.Helper
                 ExpectedDeliveryDate = request.ExpectedDeliveryDate,
                 StoreId = request.StoreId,
                 ReceivedDate = request.ReceivedDate?.ToUniversalTime(),
-                CreatedAt = request.CreatedAt?.ToUniversalTime(),
+                CreatedAt = DateTime.UtcNow,
+                OrderDate = request.OrderDate != null? request.OrderDate?.ToUniversalTime() : DateTime.UtcNow,
                 Isfinalsubmit = request.IsFinalSubmit,
                 ProductType = request.ProductType,
                 Delind = false,
@@ -487,9 +565,9 @@ namespace BELEPOS.Helper
             }
         }
 
-        
 
-        public async Task SaveParts(Guid repairOrderId, RepairOrderDto request)
+
+        /*public async Task SaveParts(Guid repairOrderId, RepairOrderDto request)
         {
             try
             {
@@ -523,9 +601,9 @@ namespace BELEPOS.Helper
                 int tokenCounter = maxToken == 0 ? 1 : maxToken + 1;
 
                 // ✅ Group parts by SubcategoryId
-                /*var groupedParts = request.Parts
+                *//*var groupedParts = request.Parts
                     .GroupBy(p => p.SubcategoryId)
-                    .OrderBy(g => g.Key);*/
+                    .OrderBy(g => g.Key);*//*
 
                 // Build a dictionary: SubcategoryId -> CategoryId
                 var subcategoryMap = await _context.SubCategories
@@ -574,7 +652,114 @@ namespace BELEPOS.Helper
                                 ProductType = request.ProductType,
                                 Tokennumber = token, // ✅ same for category
                                 Subcategoryid = part.SubcategoryId,
-                                CreatedAt = DateTime.Now
+                                CreatedAt = DateTime.Now,
+                                OrderDate = request.OrderDate!=null?request.OrderDate?.ToUniversalTime() : DateTime.UtcNow,
+                            });
+                        }
+                    }
+
+                    // ✅ After finishing one subcategory, increment token
+                    tokenCounter++;
+                }
+
+                await _context.SaveChangesAsync();
+            }
+            catch (Exception)
+            {
+                throw;
+            }
+        }*/
+
+
+
+
+        public async Task SaveParts(Guid repairOrderId, RepairOrderDto request)
+        {
+            try
+            {
+                if (request.Parts?.Any() != true) return;
+
+                var existingParts = await _context.RepairOrderParts
+                    .Where(p => p.RepairOrderId == repairOrderId)
+                    .ToListAsync();
+
+
+                // Keep only the date part, mark it as UTC
+                var orderDateUtc = request.OrderDate != null
+                    ? DateTime.SpecifyKind(request.OrderDate.Value.Date, DateTimeKind.Utc)
+                    : DateTime.UtcNow.Date;
+
+
+
+                // ✅ Get all tokens created for the same OrderDate
+                var tokensForDate = await _context.RepairOrderParts
+                    .Where(p => p.OrderDate.HasValue &&
+                                p.OrderDate.Value.Date == orderDateUtc)
+                    .Select(p => p.Tokennumber)
+                    .ToListAsync();
+
+                if (tokensForDate == null || !tokensForDate.Any())
+                {
+                    tokensForDate = new List<string>();
+                }
+
+                // ✅ Parse numeric tokens
+                int maxToken = tokensForDate
+                    .Select(t => int.TryParse(t, out int n) ? n : 0)
+                    .DefaultIfEmpty(0)
+                    .Max();
+
+                int tokenCounter = maxToken == 0 ? 1 : maxToken + 1;
+
+                // Build a dictionary: SubcategoryId -> CategoryId
+                var subcategoryMap = await _context.SubCategories
+                    .ToDictionaryAsync(s => s.Subcategoryid, s => s.Categoryid);
+
+                // Group parts by CategoryId
+                var groupedParts = request.Parts
+                    .GroupBy(p => subcategoryMap.ContainsKey(p.SubcategoryId)
+                        ? subcategoryMap[p.SubcategoryId]
+                        : Guid.Empty)
+                    .OrderBy(g => g.Key);
+
+                foreach (var group in groupedParts)
+                {
+                    // ✅ One token per subcategory group
+                    string token = tokenCounter.ToString();
+
+                    foreach (var part in group)
+                    {
+                        var existingPart = existingParts.FirstOrDefault(p => p.ProductId == part.ProductId);
+                        if (existingPart != null)
+                        {
+                            existingPart.ProductName = part.ProductName;
+                            existingPart.Quantity = part.Quantity;
+                            existingPart.Price = part.Price;
+                            existingPart.Total = part.Price * part.Quantity;
+                            existingPart.ProductType = request.ProductType;
+                            existingPart.Tokennumber = token;
+                            existingPart.Subcategoryid = part.SubcategoryId;
+                            existingPart.UpdatedAt = DateTime.Now;
+                            existingPart.OrderDate = orderDateUtc;
+                            //existingPart.OrderDate = orderDateUtc;
+                        }
+                        else
+                        {
+                            _context.RepairOrderParts.Add(new RepairOrderPart
+                            {
+                                Id = Guid.NewGuid(),
+                                RepairOrderId = repairOrderId,
+                                ProductId = part.ProductId,
+                                ProductName = part.ProductName,
+                                Quantity = part.Quantity,
+                                Price = part.Price,
+                                Total = part.Price * part.Quantity,
+                                ProductType = request.ProductType,
+                                Tokennumber = token,
+                                Subcategoryid = part.SubcategoryId,
+                                CreatedAt = DateTime.Now,
+                                //OrderDate = request.OrderDate != null ? request.OrderDate?.ToUniversalTime() : DateTime.UtcNow,
+                                OrderDate = orderDateUtc
                             });
                         }
                     }
@@ -590,6 +775,13 @@ namespace BELEPOS.Helper
                 throw;
             }
         }
+
+
+
+
+
+
+
 
 
 
@@ -623,11 +815,8 @@ namespace BELEPOS.Helper
                     Repairorderid = repairOrderId,
                     Amount = newPaid,
                     PaymentMethod = request.PaymentMethod,
-                    //  FullyPaid = remaining <= 0,
-                    //   Remainingamount = remaining < 0 ? 0 : remaining,
+                    OrderDate = request.OrderDate != null ? request.OrderDate?.ToUniversalTime() : DateTime.UtcNow,
                     TotalAmount = totalAmount,
-                    //   CreatedAt = request.ReceivedDate?.ToUniversalTime() ?? DateTime.UtcNow,
-                    // PaidAt = request.ReceivedDate?.ToUniversalTime() ?? DateTime.UtcNow
                 };
 
                 _context.OrderPayments.Add(newPayment);
@@ -769,10 +958,18 @@ namespace BELEPOS.Helper
     
 
 
-        public async Task PrintReceiptAsync(Guid repairOrderId, /*string printerName,*/ RepairOrderDto request)
+        public async Task PrintReceiptAsync(Guid repairOrderId, string printerName, RepairOrderDto request)
         {
             bool isTicketPrint = _config.GetValue<bool>("AppSettings:IsTicketPrint");
             bool isBillPrint = _config.GetValue<bool>("AppSettings:IsBillPrint");
+
+            /*var orderDate = request.OrderDate?.Date;*/
+            var orderDate  = request.OrderDate != null
+                    ? DateTime.SpecifyKind(request.OrderDate.Value.Date, DateTimeKind.Utc)
+                    : request.CreatedAt != null
+                        ? DateTime.SpecifyKind(request.CreatedAt.Value.Date, DateTimeKind.Utc)
+                        : (DateTime?)null;
+
 
             var receiptData = await (
                 from ro in _context.RepairOrders
@@ -803,7 +1000,10 @@ namespace BELEPOS.Helper
                     Total = p.Total,
                     Tokennumber = p.Tokennumber,
                     Subcategoryid = p.Subcategoryid,
-                    CategoryName = pc != null ? pc.Name : string.Empty
+                    CategoryName = pc != null ? pc.Name : string.Empty,
+                    PaymentMethod=ro.PaymentMethod,
+                    CreatedAt = ro.CreatedAt,
+                    OrderDate = orderDate,
 
                 }
             ).ToListAsync();
@@ -813,119 +1013,121 @@ namespace BELEPOS.Helper
 
             if (isBillPrint)
             {
-                PrintCustomerReceipt(receiptData,/* printerName,*/ request);
+                PrintCustomerReceipt(receiptData, printerName, request);
             }
             // ✅ Customer bill
 
             if (isTicketPrint)
             {
-                PrintCategorySlips(receiptData,/* printerName,*/ request);
+                PrintCategorySlips(receiptData, printerName, request);
             }
             // ✅ Subcategory slips
             //PrintSubcategorySlips(receiptData, printerName, request);
         }
 
-        private void PrintCustomerReceipt(List<Reciept> receiptData, /*string printerName,*/ RepairOrderDto request)
+        private void PrintCustomerReceipt(List<Reciept> receiptData, string printerName, RepairOrderDto request)
         {
 
-            string partialPrint = _config.GetValue<string>("AppSettings:PartialPrint");
+            var allowedReceiptNames = _context.PrintReceiptSettings
+                                    .Where(r => r.IsActive && !r.IsDeleted)
+                                    .Select(r => r.ReceiptName)
+                                    .ToList();
 
-            
-            var receipt = receiptData.First();
-            StringBuilder sb = new StringBuilder();
-
-            // Centered store header with "bold" address
-            if (partialPrint == "false")
+            if (allowedReceiptNames.Any(r =>
+                    r.Contains("customer", StringComparison.OrdinalIgnoreCase)))
             {
-                AddCenteredLine(sb, receipt.StoreName.ToUpper());
-                AddCenteredLine(sb, MakeBold(receipt.StoreAddress)); // Bold simulation
-                AddCenteredLine(sb, "Phone: " + receipt.StorePhone);
+                string partialPrint = _config.GetValue<string>("AppSettings:PartialPrint");
+
+
+                var receipt = receiptData.First();
+                StringBuilder sb = new StringBuilder();
+
+                // Centered store header with "bold" address
+                if (partialPrint == "false")
+                {
+                    AddCenteredLine(sb, receipt.StoreName.ToUpper());
+                    AddCenteredLine(sb, MakeBold(receipt.StoreAddress)); // Bold simulation
+                    AddCenteredLine(sb, "Phone: " + receipt.StorePhone);
+                    AddSeparator(sb);
+                    AddLine(sb, $"Order #: {receipt.OrderNumber}");
+                }
+
+
+                // Order information 
+                //AddLine(sb, $"Token: {receipt.Tokennumber}");
+
+                //AddLine(sb, $"Date: {DateTime.Now:dd/MM/yyyy HH:mm}");
+
+                AddLine(sb, $"Date: {receipt.OrderDate?.ToString("dd-MM-yyyy")}" ?? receipt.CreatedAt?.ToString("dd-MM-yyyy"));
+
+                //sb.AppendLine($"Order #: {receipt.Tokennumber}");
+                sb.AppendLine($"Order #: {receipt.OrderNumber}");
+                sb.AppendLine($"Payment Method : {receipt.PaymentMethod}");
                 AddSeparator(sb);
-                AddLine(sb, $"Order #: {receipt.OrderNumber}");
+                // Column headers
+                AddLine(sb, "Item".PadRight(25) + "Qty".PadRight(5) + "Total".PadLeft(8));
+                AddSeparator(sb);
+
+
+                foreach (var item in request.Parts)
+                {
+                    string name = item.ProductName.Length > 25 ?
+                        item.ProductName.Substring(0, 22) + "..." :
+                        item.ProductName.PadRight(25);
+                    string qty = item.Quantity.ToString().PadRight(5);
+                    string total = item.Price?.ToString("0.00").PadLeft(8);
+
+                    AddLine(sb, name + qty + total);
+                }
+
+                AddSeparator(sb);
+
+
+                decimal subtotal = (decimal)(request.SubTotal ?? 0);
+                decimal taxAmount = (request.TaxAmount ?? 0);
+                decimal grandTotal = request.TotalAmount ?? 0;
+
+
+                if (partialPrint == "false")
+                {
+                    AddLine(sb, "Tax:" + taxAmount.ToString("0.00").PadLeft(34));
+                    AddLine(sb, "TOTAL:" + grandTotal.ToString("0.00").PadLeft(31));
+                }
+                else
+                {
+                    decimal grandTotalWithoutTax = grandTotal - taxAmount;
+                    AddLine(sb, "TOTAL:" + grandTotalWithoutTax.ToString("0.00").PadLeft(32));
+                }
+
+
+                AddSeparator(sb);
+
+                // Footer
+                //AddCenteredLine(sb, "THANK YOU, VISIT AGAIN!");
+
+                //return sb.ToString();
+
+                RawPrint(sb.ToString(), printerName);
+
+
+                // Instead of autocut & raw print, save as text file
+                /*string folderPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "OrderPrint");
+                if (!Directory.Exists(folderPath))
+                    Directory.CreateDirectory(folderPath);
+                string fileName = $"main_{DateTime.Now:yyyyMMddHHmmss}_customerslip.txt";
+                string filePath = Path.Combine(folderPath, fileName);
+                File.WriteAllText(filePath, sb.ToString());*/
             }
+
+
+
             
-            
-            // Order information
-            
-            //AddLine(sb, $"Token: {receipt.Tokennumber}");
-            AddLine(sb, $"Date: {DateTime.Now:dd/MM/yyyy HH:mm}");
-
-            //sb.AppendLine($"Order #: {receipt.Tokennumber}");
-            sb.AppendLine($"Order #: {receipt.OrderNumber}");
-            //sb.AppendLine($"Order Type #: {receipt.OrderType}");
-            AddSeparator(sb);
-            // Column headers
-            AddLine(sb, "Item".PadRight(25) + "Qty".PadRight(5) + "Total".PadLeft(8));
-            AddSeparator(sb);
-
-            // Items
-            /*foreach (var item in receiptData)
-            {
-                string name = item.ProductName.Length > 25 ?
-                    item.ProductName.Substring(0, 22) + "..." :
-                    item.ProductName.PadRight(25);
-                string qty = item.Quantity.ToString().PadRight(5);
-                string total = item.Total?.ToString("0.00").PadLeft(8);
-
-                AddLine(sb, name + qty + total);
-            }*/
-
-
-            foreach (var item in request.Parts)
-            {
-                string name = item.ProductName.Length > 25 ?
-                    item.ProductName.Substring(0, 22) + "..." :
-                    item.ProductName.PadRight(25);
-                string qty = item.Quantity.ToString().PadRight(5);
-                string total = item.Price?.ToString("0.00").PadLeft(8);
-
-                AddLine(sb, name + qty + total);
-            }
-
-            AddSeparator(sb);
-
-
-
-            /* decimal subtotal = receiptData.Sum(x => (decimal)(x.Total ?? 0));
-             decimal discount = (receipt.DiscountValue ?? 0);
-             decimal taxPercent = (receipt.TaxPercent ?? 0);
-             decimal tax = (subtotal - discount) * taxPercent / 100;
-             decimal grandTotal = subtotal - discount + tax;*/
-
-
-            decimal subtotal = (decimal)(request.SubTotal ?? 0);
-            decimal taxAmount = (request.TaxAmount ?? 0);
-            decimal grandTotal = request.TotalAmount??0;
-
-            // Totals
-            //AddLine(sb, "Subtotal:" + subtotal.ToString("0.00").PadLeft(29));
-            if (partialPrint == "false")
-            {
-                //AddLine(sb, "Discount:" + discount.ToString("0.00").PadLeft(29));
-                AddLine(sb, "Tax:" + taxAmount.ToString("0.00").PadLeft(34));
-                AddLine(sb, "TOTAL:" + grandTotal.ToString("0.00").PadLeft(31));
-            }
-            else
-            {
-                decimal grandTotalWithoutTax = grandTotal - taxAmount;
-                AddLine(sb, "TOTAL:" + grandTotalWithoutTax.ToString("0.00").PadLeft(32));
-            }
-
-           
-            AddSeparator(sb);
-
-            // Footer
-            //AddCenteredLine(sb, "THANK YOU, VISIT AGAIN!");
-
-            //return sb.ToString();
-            //RawPrint(sb.ToString(), printerName);
-
 
         }
 
 
 
-        private void PrintCategorySlips(List<Reciept> receiptData, /*string printerName,*/ RepairOrderDto request)
+        /*private void PrintCategorySlips(List<Reciept> receiptData, string printerName, RepairOrderDto request)
         {
             // 🔹 Build Subcategory → Category map
             var subToCat = _context.SubCategories
@@ -955,7 +1157,7 @@ namespace BELEPOS.Helper
             // ✅ Group dynamically by CategoryId
             var groups = receiptData.GroupBy(r => r.CategoryId);
 
-            string allowedCategory = _config.GetValue<string>("AppSettings:allowedCategory");
+            string allowedCategory = _config.GetValue<string>("AppSettings:StopPrintCategory");
 
             foreach (var group in groups)
             {
@@ -970,11 +1172,85 @@ namespace BELEPOS.Helper
                     ? categoryName
                     : string.Empty;
                 if (string.IsNullOrWhiteSpace(slipTitle))
-                    PrintSlip(items,/* printerName,*/ slipTitle);
+                    PrintSlip(items, printerName, slipTitle);
+            }
+        }*/
+
+
+
+
+        private void PrintCategorySlips(List<Reciept> receiptData, string printerName, RepairOrderDto request)
+        {
+            // 🔹 Build Subcategory → Category map
+            var subToCat = _context.SubCategories
+                .Where(s => s.Delind == false)
+                .ToDictionary(s => s.Subcategoryid, s => s.Categoryid);
+
+            // 🔹 Build CategoryId → CategoryName map
+            var catNames = _context.Categories
+                .Where(c => c.Delind == false)
+                .ToDictionary(c => c.Categoryid, c => c.CategoryName);
+
+            // 🔹 Enrich receipt data with CategoryId + CategoryName
+            foreach (var r in receiptData)
+            {
+                if (r.Subcategoryid != null && subToCat.TryGetValue(r.Subcategoryid.Value, out var catId))
+                {
+                    r.CategoryId = catId;
+                    r.CategoryName = catNames.TryGetValue(catId, out var catName) ? catName : "Unknown";
+                }
+                else
+                {
+                    r.CategoryId = Guid.Empty;
+                    r.CategoryName = "Uncategorized";
+                }
+            }
+
+            // ✅ Group dynamically by CategoryId
+            var groups = receiptData.GroupBy(r => r.CategoryId);
+
+            //string allowedCategory = _config.GetValue<string>("AppSettings:StopPrintCategory");
+
+
+            var allowedReceiptNames =  _context.PrintReceiptSettings
+                            .Where(r => r.IsActive && !r.IsDeleted)
+                            .Select(r => r.ReceiptName)
+                            .ToList();
+
+
+            foreach (var group in groups)
+            {
+                var categoryName = group.First().CategoryName ?? "Unknown";
+                var items = group.ToList();
+
+                if (!items.Any())
+                    continue;
+
+                /* // If category matches allowed → include category name, else pass empty
+                 string slipTitle = string.Equals(categoryName, allowedCategory, StringComparison.OrdinalIgnoreCase)
+                     ? categoryName
+                     : string.Empty;
+                 if (string.IsNullOrWhiteSpace(slipTitle))
+                     PrintSlip(items, printerName, slipTitle);*/
+
+                /*  if (allowedReceiptNames.Any(r => string.Equals(r, categoryName, StringComparison.OrdinalIgnoreCase)))
+                  {
+                      PrintSlip(items, printerName, categoryName);
+                  }*/
+
+                if (allowedReceiptNames.Any(r =>
+                 !r.Contains("customer", StringComparison.OrdinalIgnoreCase) &&
+                  r.Contains(categoryName, StringComparison.OrdinalIgnoreCase)))
+                {
+                    PrintSlip(items, printerName, categoryName);
+                }
+
+
+
             }
         }
 
-        private void PrintSlip(List<Reciept> items, /*string printerName,*/ string slipTitle)
+        private void PrintSlip(List<Reciept> items, string printerName, string slipTitle)
         {
             if (items == null || !items.Any()) return;
 
@@ -984,7 +1260,7 @@ namespace BELEPOS.Helper
 
             sb.AppendLine($"Token #: {first.Tokennumber}");
             sb.AppendLine($"Order #: {first.OrderNumber}");
-            sb.AppendLine($"Order Type : {first.OrderType}");
+            sb.AppendLine($"OrderType : {first.OrderType}");
 
             // ✅ Print slip title only if not empty
             if (!string.IsNullOrWhiteSpace(slipTitle))
@@ -995,29 +1271,52 @@ namespace BELEPOS.Helper
                 slipTotal += (item.Total ?? 0);
 
             sb.AppendLine($"Total: {slipTotal:0.00}");
-            sb.AppendLine($"Date: {DateTime.Now:dd/MM/yyyy HH:mm}");
+            //sb.AppendLine($"Date: {DateTime.Now:dd/MM/yyyy HH:mm}");
+            AddLine(sb, $"Date: {items[0].OrderDate?.ToString("dd-MM-yyyy")}" ?? items[0].CreatedAt?.ToString("dd-MM-yyyy"));
             AddSeparator(sb);
 
             // ✅ Table header
-            AddLine(sb, "Item".PadRight(25) + "Qty".PadRight(5));
+            AddLine(sb, "Item".PadRight(30) + "Qty".PadRight(5));
             AddSeparator(sb);
 
+           
             foreach (var item in items)
             {
-                string name = item.ProductName.Length > 20
-                    ? item.ProductName.Substring(0, 20) + "..."
-                    : item.ProductName.PadRight(25);
-
+                int nameWidth = 30;
                 string qty = item.Quantity.ToString().PadRight(5);
 
-                sb.AppendLine(name + qty);
+                // Break product name into chunks of max length nameWidth
+                string productName = item.ProductName ?? "";
+                for (int i = 0; i < productName.Length; i += nameWidth)
+                {
+                    string chunk = productName.Substring(i, Math.Min(nameWidth, productName.Length - i));
+
+                    if (i == 0)
+                    {
+                        // First line → include Qty
+                        sb.AppendLine(chunk.PadRight(nameWidth) + qty);
+                    }
+                    else
+                    {
+                        // Continuation lines → indent, no Qty
+                        sb.AppendLine(chunk);
+                    }
+                }
             }
 
             AddSeparator(sb);
 
             sb.AppendLine("\x1D\x56\x00"); // ✅ Autocut
 
-            //RawPrint(sb.ToString(), printerName);
+            RawPrint(sb.ToString(), printerName);
+
+            // Instead of autocut & raw print, save as text file
+            /*string folderPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "OrderPrint");
+            if (!Directory.Exists(folderPath))
+                Directory.CreateDirectory(folderPath);
+            string fileName = $"{slipTitle}_{first.OrderNumber}_{DateTime.Now:yyyyMMddHHmmss}_token.txt";
+            string filePath = Path.Combine(folderPath, fileName);
+            File.WriteAllText(filePath, sb.ToString());*/
         }
 
 
@@ -1090,7 +1389,7 @@ namespace BELEPOS.Helper
                 //sb.AppendLine("   --- END OF SLIP ---   ");
                 sb.AppendLine("\x1D\x56\x00"); // ✅ Autocut
 
-                //RawPrint(sb.ToString(), printerName);
+                RawPrint(sb.ToString(), printerName);
             }
         }
 
@@ -1113,7 +1412,7 @@ namespace BELEPOS.Helper
             pd.PrinterSettings.PrinterName = printerName;
             pd.PrintPage += (s, e) =>
             {
-                e.Graphics.DrawString(text, new Font("Consolas", 9), Brushes.Black, new PointF(10, 10));
+                e.Graphics.DrawString(text, new System.Drawing.Font("Consolas", 9), Brushes.Black, new PointF(10, 10));
             };
             pd.Print();
         }
@@ -1140,11 +1439,1188 @@ namespace BELEPOS.Helper
             sb.AppendLine(new string('-', ReceiptWidth));
         }
 
-        private string MakeBold(string text)
+        public string MakeBold(string text)
         {
             // Simulate bold text by using uppercase and adding a slight underline effect
             return text.ToUpper() + "\n" + new string('~', text.Length);
         }
+
+        public string Trunc(string? s, int max)
+        {
+            if (string.IsNullOrEmpty(s)) return s;
+            return s.Length <= max ? s : s.Substring(0, max);
+        }
+
+
+
+
+        /*public async Task<string> OrderProductSync(OrderSyncEnvelope payload, CancellationToken ct, CentralDbContext _centralDB)
+        {
+            if (payload?.RepairOrders == null || payload.RepairOrders.Count == 0)
+                //return BadRequest(new { success = false, message = "Empty payload." });
+                return "Empty payload.";
+
+            int importedOrders = 0;
+            int importedParts = 0;
+            int importedPayments = 0;
+
+            await using var tx = await _centralDB.Database.BeginTransactionAsync(ct);
+            try
+            {
+
+                // Preload existing order numbers for efficient duplicate checking
+                var existingOrderNumbers = await _centralDB.RepairOrders
+                    .Select(x => x.OrderNumber)
+                    .ToListAsync(ct);
+
+
+                foreach (var ro in payload.RepairOrders)
+                {
+
+                    // Skip duplicate order numbers
+                    if (!string.IsNullOrEmpty(ro.OrderNumber) && existingOrderNumbers.Contains(ro.OrderNumber))
+                    {
+                        Console.WriteLine($"Skipping duplicate OrderNumber: {ro.OrderNumber}");
+                        continue;
+                    }
+
+                    var entity = await _centralDB.RepairOrders
+                        .FirstOrDefaultAsync(x => x.RepairOrderId == ro.RepairOrderId, ct);
+
+                    if (entity == null)
+                    {
+                        entity = new RepairOrder { RepairOrderId = ro.RepairOrderId };
+                        _centralDB.RepairOrders.Add(entity);
+                    }
+
+                    // Update fields (UTC for RepairOrders)
+                    entity.OrderNumber = ro.OrderNumber;
+                    entity.Paid = ro.Paid;
+                    entity.PaymentMethod = ro.PaymentMethod;
+                    entity.IssueDescription = ro.IssueDescription;
+                    entity.RepairStatus = ro.RepairStatus;
+                    entity.ReceivedDate = ro.ReceivedDate;
+                    entity.ExpectedDeliveryDate = ro.ExpectedDeliveryDate;
+                    entity.StoreId = ro.StoreId;
+                    entity.CreatedAt = ro.CreatedAt;
+                    entity.UpdatedAt = DateTime.UtcNow;
+                    entity.Delind = ro.Delind;
+                    entity.CustomerId = ro.CustomerId;
+                    entity.UserId = ro.UserId;
+                    entity.Isfinalsubmit = ro.IsFinalSubmit;
+                    entity.TotalAmount = ro.TotalAmount;
+                    entity.ProductType = ro.ProductType;
+                    entity.Cancelled = ro.Cancelled;
+                    entity.Contactmethod = ro.Contactmethod != null ? string.Join(",", ro.Contactmethod) : null;
+                    entity.Paidamount = ro.PaidAmount;
+                    entity.DiscountType = ro.DiscountType;
+                    entity.DiscountValue = ro.DiscountValue;
+                    entity.TaxPercent = ro.TaxPercent;
+                    entity.Status = ro.RepairStatus;
+                    entity.OrderType = ro.OrderType;
+
+                    importedOrders++;
+
+                    // --- UPSERT REPAIR ORDER PARTS (Unspecified) ---
+                    if (ro.Parts != null && ro.Parts.Count > 0)
+                    {
+                        foreach (var p in ro.Parts)
+                        {
+                            var existingPart = await _centralDB.RepairOrderParts
+                                .FirstOrDefaultAsync(x => x.Id == p.Id, ct);
+
+                            if (existingPart != null)
+                            {
+                                _centralDB.Entry(existingPart).CurrentValues.SetValues(new RepairOrderPart
+                                {
+                                    RepairOrderId = ro.RepairOrderId,
+                                    ProductId = p.ProductId,
+                                    ProductName = p.ProductName,
+                                    PartDescription = p.PartDescription,
+                                    DeviceType = p.DeviceType,
+                                    DeviceModel = p.DeviceModel,
+                                    SerialNumber = p.SerialNumber,
+                                    Quantity = p.Quantity,
+                                    Price = p.Price,
+                                    Total = p.Total,
+                                    CreatedAt = ToUnspecified(p.CreatedAt),
+                                    UpdatedAt = DateTime.UtcNow,
+                                    BrandName = p.BrandName,
+                                    ProductType = p.ProductType,
+                                    Cancelled = p.Cancelled,
+                                    Tokennumber = p.TokenNumber,
+                                    Subcategoryid = p.SubcategoryId
+                                });
+                            }
+                            else
+                            {
+                                var newPart = new RepairOrderPart
+                                {
+                                    Id = p.Id == Guid.Empty ? Guid.NewGuid() : p.Id,
+                                    RepairOrderId = ro.RepairOrderId,
+                                    ProductId = p.ProductId,
+                                    ProductName = p.ProductName,
+                                    PartDescription = p.PartDescription,
+                                    DeviceType = p.DeviceType,
+                                    DeviceModel = p.DeviceModel,
+                                    SerialNumber = p.SerialNumber,
+                                    Quantity = p.Quantity,
+                                    Price = p.Price,
+                                    Total = p.Total,
+                                    CreatedAt = ToUnspecified(p.CreatedAt),
+                                    UpdatedAt = ToUnspecified(p.UpdatedAt),
+                                    BrandName = p.BrandName,
+                                    ProductType = p.ProductType,
+                                    Cancelled = p.Cancelled,
+                                    Tokennumber = p.TokenNumber,
+                                    Subcategoryid = p.SubcategoryId
+                                };
+                                _centralDB.RepairOrderParts.Add(newPart);
+                                importedParts++;
+                            }
+                        }
+                    }
+
+                    // --- UPSERT ORDER PAYMENTS (Unspecified) ---
+                    if (ro.Payments != null && ro.Payments.Count > 0)
+                    {
+                        foreach (var pay in ro.Payments)
+                        {
+                            var existingPay = await _centralDB.OrderPayments
+                                .FirstOrDefaultAsync(x => x.Paymentid == pay.PaymentId, ct);
+
+                            if (existingPay != null)
+                            {
+                                _centralDB.Entry(existingPay).CurrentValues.SetValues(new OrderPayment
+                                {
+                                    Paymentid = pay.PaymentId,
+                                    Repairorderid = pay.RepairOrderId,
+                                    Amount = pay.Amount,
+                                    PaymentMethod = pay.PaymentMethod,
+                                    PaidAt = ToUnspecified(pay.PaidAt),
+                                    CreatedAt = ToUnspecified(pay.CreatedAt),
+                                    PartialPayment = pay.PartialPayment,
+                                    TotalAmount = pay.TotalAmount,
+                                    FullyPaid = pay.FullyPaid,
+                                    Remainingamount = pay.RemainingAmount
+                                });
+                            }
+                            else
+                            {
+                                var newPay = new OrderPayment
+                                {
+                                    Paymentid = pay.PaymentId == Guid.Empty ? Guid.NewGuid() : pay.PaymentId,
+                                    Repairorderid = pay.RepairOrderId,
+                                    Amount = pay.Amount,
+                                    PaymentMethod = pay.PaymentMethod,
+                                    PaidAt = ToUnspecified(pay.PaidAt),
+                                    CreatedAt = ToUnspecified(pay.CreatedAt),
+                                    PartialPayment = pay.PartialPayment,
+                                    TotalAmount = pay.TotalAmount,
+                                    FullyPaid = pay.FullyPaid,
+                                    Remainingamount = pay.RemainingAmount
+                                };
+                                _centralDB.OrderPayments.Add(newPay);
+                                importedPayments++;
+                            }
+                        }
+                    }
+                }
+
+                await _centralDB.SaveChangesAsync(ct);
+                await tx.CommitAsync(ct);
+
+                return "success";
+            }
+            catch (Exception ex)
+            {
+                var fullError = new StringBuilder();
+                fullError.AppendLine($"Exception: {ex.Message}");
+                fullError.AppendLine($"StackTrace: {ex.StackTrace}");
+
+                if (ex.InnerException != null)
+                {
+                    fullError.AppendLine($"InnerException: {ex.InnerException.Message}");
+                    fullError.AppendLine($"InnerStackTrace: {ex.InnerException.StackTrace}");
+                }
+                return fullError.ToString();
+            }
+        }*/
+
+
+
+
+        /*public async Task<string> OrderProductSync(OrderSyncEnvelope payload, CancellationToken ct, CentralDbContext _centralDB)
+        {
+            if (payload?.RepairOrders == null || payload.RepairOrders.Count == 0)
+                //return BadRequest(new { success = false, message = "Empty payload." });
+                return "Empty payload.";
+
+            int importedOrders = 0;
+            int importedParts = 0;
+            int importedPayments = 0;
+
+            await using var tx = await _centralDB.Database.BeginTransactionAsync(ct);
+            try
+            {
+                // Preload existing orders for efficient lookups
+                var existingOrders = await _centralDB.RepairOrders
+                    .Select(x => new { x.RepairOrderId, x.OrderNumber })
+                    .ToListAsync(ct);
+
+                foreach (var ro in payload.RepairOrders)
+                {
+
+                    try
+                    {
+                        // Check existing order either by RepairOrderId or OrderNumber
+                        var existingEntity = existingOrders.FirstOrDefault(x =>
+                            x.RepairOrderId == ro.RepairOrderId ||
+                            (!string.IsNullOrEmpty(ro.OrderNumber) && x.OrderNumber == ro.OrderNumber));
+
+                        RepairOrder entity;
+
+                        if (existingEntity == null)
+                        {
+                            // New Order
+                            entity = new RepairOrder { RepairOrderId = ro.RepairOrderId };
+                            _centralDB.RepairOrders.Add(entity);
+                        }
+                        else
+                        {
+                            // Update Existing Order
+                            entity = await _centralDB.RepairOrders
+                                .FirstOrDefaultAsync(x => x.RepairOrderId == existingEntity.RepairOrderId, ct);
+                        }
+
+                        // Update or insert order data
+                        entity.OrderNumber = ro.OrderNumber ?? "";
+                        entity.Paid = ro.Paid;
+                        entity.PaymentMethod = ro.PaymentMethod;
+                        entity.IssueDescription = ro.IssueDescription;
+                        entity.RepairStatus = ro.RepairStatus;
+                        entity.ReceivedDate = ro.ReceivedDate;
+                        entity.ExpectedDeliveryDate = ro.ExpectedDeliveryDate;
+                        entity.StoreId = ro.StoreId;
+                        entity.CreatedAt = ro.CreatedAt;
+                        entity.UpdatedAt = DateTime.UtcNow;
+                        entity.Delind = ro.Delind;
+                        entity.CustomerId = ro.CustomerId;
+                        entity.UserId = ro.UserId;
+                        entity.Isfinalsubmit = ro.IsFinalSubmit;
+                        entity.TotalAmount = ro.TotalAmount;
+                        entity.ProductType = ro.ProductType;
+                        entity.Cancelled = ro.Cancelled;
+                        entity.Delind = ro.Delind;
+                        entity.Contactmethod = ro.Contactmethod != null ? string.Join(",", ro.Contactmethod) : null;
+                        entity.Paidamount = ro.PaidAmount;
+                        entity.DiscountType = ro.DiscountType;
+                        entity.DiscountValue = ro.DiscountValue;
+                        entity.TaxPercent = ro.TaxPercent;
+                        entity.Status = ro.RepairStatus;
+                        entity.OrderType = ro.OrderType;
+
+                        importedOrders++;
+
+                        // --- UPSERT REPAIR ORDER PARTS ---
+                        if (ro.Parts != null && ro.Parts.Count > 0)
+                        {
+                            foreach (var p in ro.Parts)
+                            {
+                                var existingPart = await _centralDB.RepairOrderParts
+                                    .FirstOrDefaultAsync(x => x.Id == p.Id, ct);
+
+                                if (existingPart != null)
+                                {
+                                    _centralDB.Entry(existingPart).CurrentValues.SetValues(new RepairOrderPart
+                                    {
+                                        RepairOrderId = ro.RepairOrderId,
+                                        ProductId = p.ProductId,
+                                        ProductName = p.ProductName,
+                                        PartDescription = p.PartDescription,
+                                        DeviceType = p.DeviceType,
+                                        DeviceModel = p.DeviceModel,
+                                        SerialNumber = p.SerialNumber,
+                                        Quantity = p.Quantity,
+                                        Price = p.Price,
+                                        Total = p.Total,
+                                        CreatedAt = ToUnspecified(p.CreatedAt),
+                                        UpdatedAt = DateTime.UtcNow,
+                                        BrandName = p.BrandName,
+                                        ProductType = p.ProductType,
+                                        Cancelled = p.Cancelled,
+                                        Delind = p.Delind,
+                                        Tokennumber = p.TokenNumber,
+                                        Subcategoryid = p.SubcategoryId
+                                    });
+                                }
+                                else
+                                {
+                                    _centralDB.RepairOrderParts.Add(new RepairOrderPart
+                                    {
+                                        Id = p.Id == Guid.Empty ? Guid.NewGuid() : p.Id,
+                                        RepairOrderId = ro.RepairOrderId,
+                                        ProductId = p.ProductId,
+                                        ProductName = p.ProductName,
+                                        PartDescription = p.PartDescription,
+                                        DeviceType = p.DeviceType,
+                                        DeviceModel = p.DeviceModel,
+                                        SerialNumber = p.SerialNumber,
+                                        Quantity = p.Quantity,
+                                        Price = p.Price,
+                                        Total = p.Total,
+                                        CreatedAt = ToUnspecified(p.CreatedAt),
+                                        UpdatedAt = ToUnspecified(p.UpdatedAt),
+                                        BrandName = p.BrandName,
+                                        ProductType = p.ProductType,
+                                        Cancelled = p.Cancelled,
+                                        Delind = p.Delind,
+                                        Tokennumber = p.TokenNumber,
+                                        Subcategoryid = p.SubcategoryId
+                                    });
+                                    importedParts++;
+                                }
+                            }
+                        }
+
+                        // --- UPSERT ORDER PAYMENTS ---
+                        if (ro.Payments != null && ro.Payments.Count > 0)
+                        {
+                            foreach (var pay in ro.Payments)
+                            {
+                                var existingPay = await _centralDB.OrderPayments
+                                    .FirstOrDefaultAsync(x => x.Paymentid == pay.PaymentId, ct);
+
+                                if (existingPay != null)
+                                {
+                                    _centralDB.Entry(existingPay).CurrentValues.SetValues(new OrderPayment
+                                    {
+                                        Paymentid = pay.PaymentId,
+                                        Repairorderid = pay.RepairOrderId,
+                                        Amount = pay.Amount,
+                                        PaymentMethod = pay.PaymentMethod,
+                                        PaidAt = ToUnspecified(pay.PaidAt),
+                                        CreatedAt = ToUnspecified(pay.CreatedAt),
+                                        PartialPayment = pay.PartialPayment,
+                                        TotalAmount = pay.TotalAmount,
+                                        FullyPaid = pay.FullyPaid,
+                                        Remainingamount = pay.RemainingAmount
+                                    });
+                                }
+                                else
+                                {
+                                    _centralDB.OrderPayments.Add(new OrderPayment
+                                    {
+                                        Paymentid = pay.PaymentId == Guid.Empty ? Guid.NewGuid() : pay.PaymentId,
+                                        Repairorderid = pay.RepairOrderId,
+                                        Amount = pay.Amount,
+                                        PaymentMethod = pay.PaymentMethod,
+                                        PaidAt = ToUnspecified(pay.PaidAt),
+                                        CreatedAt = ToUnspecified(pay.CreatedAt),
+                                        PartialPayment = pay.PartialPayment,
+                                        TotalAmount = pay.TotalAmount,
+                                        FullyPaid = pay.FullyPaid,
+                                        Remainingamount = pay.RemainingAmount
+                                    });
+                                    importedPayments++;
+                                }
+                            }
+                            await _centralDB.SaveChangesAsync();
+                            
+
+                        }
+                       
+                    }
+                    catch (Exception ex)
+                    {
+                      //  await tx.RollbackAsync(ct);
+                        var fullError = new StringBuilder();
+                        fullError.AppendLine($"Exception: {ex.Message}");
+                        fullError.AppendLine($"StackTrace: {ex.StackTrace}");
+                        fullError.AppendLine($"Error in OrderNumber: {ro.OrderNumber ?? ro.RepairOrderId.ToString()}");
+
+                        if (ex.InnerException != null)
+                        {
+                            fullError.AppendLine($"InnerException: {ex.InnerException.Message}");
+                            fullError.AppendLine($"InnerStackTrace: {ex.InnerException.StackTrace}");
+                        }
+                        return fullError.ToString();
+                       
+                    }
+                    
+                }
+                return "success";
+
+            }
+            catch (Exception ex)
+            {
+                var fullError = new StringBuilder();
+                fullError.AppendLine($"Exception: {ex.Message}");
+                fullError.AppendLine($"StackTrace: {ex.StackTrace}");
+                
+
+                if (ex.InnerException != null)
+                {
+                    fullError.AppendLine($"InnerException: {ex.InnerException.Message}");
+                    fullError.AppendLine($"InnerStackTrace: {ex.InnerException.StackTrace}");
+                }
+                return fullError.ToString();
+            }
+
+        }*/
+
+
+
+        /*public async Task<string> OrderProductSync(OrderSyncEnvelope payload, CancellationToken ct, CentralDbContext _centralDB)
+        {
+            if (payload?.RepairOrders == null || payload.RepairOrders.Count == 0)
+                return "Empty payload.";
+
+            int importedOrders = 0;
+            int importedParts = 0;
+            int importedPayments = 0;
+
+            var errorLog = new StringBuilder();
+
+            await using var tx = await _centralDB.Database.BeginTransactionAsync(ct);
+
+            try
+            {
+                // Preload existing orders for efficient lookups
+                var existingOrders = await _centralDB.RepairOrders
+                    .Select(x => new { x.RepairOrderId, x.OrderNumber })
+                    .ToListAsync(ct);
+
+                foreach (var ro in payload.RepairOrders)
+                {
+
+                    // --- UPSERT REPAIR ORDER ---
+                    var existingEntity = existingOrders.FirstOrDefault(x =>
+                        x.RepairOrderId == ro.RepairOrderId ||
+                        (!string.IsNullOrEmpty(ro.OrderNumber) && x.OrderNumber == ro.OrderNumber));
+
+                    RepairOrder entity;
+
+                    if (existingEntity == null)
+                    {
+                        // New order
+                        entity = new RepairOrder { RepairOrderId = ro.RepairOrderId };
+                        _centralDB.RepairOrders.Add(entity);
+                    }
+                    else
+                    {
+                        // Update existing
+                        entity = await _centralDB.RepairOrders
+                            .FirstOrDefaultAsync(x => x.RepairOrderId == existingEntity.RepairOrderId, ct);
+                    }
+
+                    // Update common fields
+                    entity.OrderNumber = ro.OrderNumber ?? "";
+                    entity.Paid = ro.Paid;
+                    entity.PaymentMethod = ro.PaymentMethod;
+                    entity.IssueDescription = ro.IssueDescription;
+                    entity.RepairStatus = ro.RepairStatus;
+                    entity.ReceivedDate = ro.ReceivedDate;
+                    entity.ExpectedDeliveryDate = ro.ExpectedDeliveryDate;
+                    entity.StoreId = ro.StoreId;
+                    entity.CreatedAt = ro.CreatedAt;
+                    entity.UpdatedAt = DateTime.UtcNow;
+                    entity.Delind = ro.Delind;
+                    entity.CustomerId = ro.CustomerId;
+                    entity.UserId = ro.UserId;
+                    entity.Isfinalsubmit = ro.IsFinalSubmit;
+                    entity.TotalAmount = ro.TotalAmount;
+                    entity.ProductType = ro.ProductType;
+                    entity.Cancelled = ro.Cancelled;
+                    entity.Contactmethod = ro.Contactmethod != null ? string.Join(",", ro.Contactmethod) : null;
+                    entity.Paidamount = ro.PaidAmount;
+                    entity.DiscountType = ro.DiscountType;
+                    entity.DiscountValue = ro.DiscountValue;
+                    entity.TaxPercent = ro.TaxPercent;
+                    entity.Status = ro.RepairStatus;
+                    entity.OrderType = ro.OrderType;
+
+                    await _centralDB.SaveChangesAsync(ct); // ensure RepairOrder exists before child inserts
+                    importedOrders++;
+
+                    // --- UPSERT REPAIR ORDER PARTS ---
+                    if (ro.Parts?.Count > 0)
+                    {
+                        foreach (var p in ro.Parts)
+                        {
+                            var existingPart = await _centralDB.RepairOrderParts
+                                .FirstOrDefaultAsync(x => x.Id == p.Id, ct);
+
+                            if (existingPart != null)
+                            {
+                                _centralDB.Entry(existingPart).CurrentValues.SetValues(new RepairOrderPart
+                                {
+                                    RepairOrderId = entity.RepairOrderId,
+                                    ProductId = p.ProductId,
+                                    ProductName = p.ProductName,
+                                    PartDescription = p.PartDescription,
+                                    DeviceType = p.DeviceType,
+                                    DeviceModel = p.DeviceModel,
+                                    SerialNumber = p.SerialNumber,
+                                    Quantity = p.Quantity,
+                                    Price = p.Price,
+                                    Total = p.Total,
+                                    CreatedAt = ToUnspecified(p.CreatedAt),
+                                    UpdatedAt = DateTime.UtcNow,
+                                    BrandName = p.BrandName,
+                                    ProductType = p.ProductType,
+                                    Cancelled = p.Cancelled,
+                                    Delind = p.Delind,
+                                    Tokennumber = p.TokenNumber,
+                                    Subcategoryid = p.SubcategoryId
+                                });
+                            }
+                            else
+                            {
+                                _centralDB.RepairOrderParts.Add(new RepairOrderPart
+                                {
+                                    Id = p.Id == Guid.Empty ? Guid.NewGuid() : p.Id,
+                                    RepairOrderId = entity.RepairOrderId,
+                                    ProductId = p.ProductId,
+                                    ProductName = p.ProductName,
+                                    PartDescription = p.PartDescription,
+                                    DeviceType = p.DeviceType,
+                                    DeviceModel = p.DeviceModel,
+                                    SerialNumber = p.SerialNumber,
+                                    Quantity = p.Quantity,
+                                    Price = p.Price,
+                                    Total = p.Total,
+                                    CreatedAt = ToUnspecified(p.CreatedAt),
+                                    UpdatedAt = ToUnspecified(p.UpdatedAt),
+                                    BrandName = p.BrandName,
+                                    ProductType = p.ProductType,
+                                    Cancelled = p.Cancelled,
+                                    Delind = p.Delind,
+                                    Tokennumber = p.TokenNumber,
+                                    Subcategoryid = p.SubcategoryId
+                                });
+                                importedParts++;
+                            }
+                        }
+                        await _centralDB.SaveChangesAsync(ct);
+                    }
+
+                    // --- UPSERT ORDER PAYMENTS ---
+                    if (ro.Payments?.Count > 0)
+                    {
+                        foreach (var pay in ro.Payments)
+                        {
+                            var existingPay = await _centralDB.OrderPayments
+                                .FirstOrDefaultAsync(x => x.Paymentid == pay.PaymentId, ct);
+
+                            if (existingPay != null)
+                            {
+                                _centralDB.Entry(existingPay).CurrentValues.SetValues(new OrderPayment
+                                {
+                                    Paymentid = pay.PaymentId,
+                                    Repairorderid = entity.RepairOrderId, // use entity ID for safety
+                                    Amount = pay.Amount,
+                                    PaymentMethod = pay.PaymentMethod,
+                                    PaidAt = ToUnspecified(pay.PaidAt),
+                                    CreatedAt = ToUnspecified(pay.CreatedAt),
+                                    PartialPayment = pay.PartialPayment,
+                                    TotalAmount = pay.TotalAmount,
+                                    FullyPaid = pay.FullyPaid,
+                                    Remainingamount = pay.RemainingAmount
+                                });
+                            }
+                            else
+                            {
+                                _centralDB.OrderPayments.Add(new OrderPayment
+                                {
+                                    Paymentid = pay.PaymentId == Guid.Empty ? Guid.NewGuid() : pay.PaymentId,
+                                    Repairorderid = entity.RepairOrderId,
+                                    Amount = pay.Amount,
+                                    PaymentMethod = pay.PaymentMethod,
+                                    PaidAt = ToUnspecified(pay.PaidAt),
+                                    CreatedAt = ToUnspecified(pay.CreatedAt),
+                                    PartialPayment = pay.PartialPayment,
+                                    TotalAmount = pay.TotalAmount,
+                                    FullyPaid = pay.FullyPaid,
+                                    Remainingamount = pay.RemainingAmount
+                                });
+                                importedPayments++;
+                            }
+                        }
+
+                        await _centralDB.SaveChangesAsync(ct);
+                    }
+
+                    *//*try
+                    {
+                       
+                    }
+                    catch (Exception ex)
+                    {
+                        errorLog.AppendLine($"Error in OrderNumber: {ro.OrderNumber ?? ro.RepairOrderId.ToString()}");
+                        errorLog.AppendLine($"Exception: {ex.Message}");
+                        if (ex.InnerException != null)
+                            errorLog.AppendLine($"InnerException: {ex.InnerException.Message}");
+                        errorLog.AppendLine(new string('-', 80));
+                        // continue to next order
+                    }*//*
+                }
+
+                await tx.CommitAsync(ct);
+
+                var summary = "success";
+                if (errorLog.Length > 0)
+                    summary += $"\nErrors:\n{errorLog}";
+
+                return summary;
+            }
+            catch (Exception ex)
+            {
+                await tx.RollbackAsync(ct);
+
+                var fullError = new StringBuilder();
+                fullError.AppendLine($"Exception: {ex.Message}");
+                fullError.AppendLine($"StackTrace: {ex.StackTrace}");
+                if (ex.InnerException != null)
+                {
+                    fullError.AppendLine($"InnerException: {ex.InnerException.Message}");
+                    fullError.AppendLine($"InnerStackTrace: {ex.InnerException.StackTrace}");
+                }
+                return fullError.ToString();
+            }
+        }*/
+
+
+
+        public async Task<string> OrderProductSync(OrderSyncEnvelope payload, CancellationToken ct, CentralDbContext _centralDB)
+        {
+            if (payload?.RepairOrders == null || payload.RepairOrders.Count == 0)
+                return "Empty payload.";
+
+            int importedOrders = 0;
+            int importedParts = 0;
+            int importedPayments = 0;
+
+            var errorLog = new StringBuilder();
+
+            await using var tx = await _centralDB.Database.BeginTransactionAsync(ct);
+
+            try
+            {
+                // Preload existing orders for quick lookup
+                var existingOrders = await _centralDB.RepairOrders
+                    .Select(x => new { x.RepairOrderId, x.OrderNumber })
+                    .ToListAsync(ct);
+
+                foreach (var ro in payload.RepairOrders)
+                {
+                    /*try
+                    {
+                        
+                    }
+                    catch (Exception ex)
+                    {
+                        errorLog.AppendLine($"Error in OrderNumber: {ro.OrderNumber ?? ro.RepairOrderId.ToString()}");
+                        errorLog.AppendLine($"Exception: {ex.Message}");
+                        if (ex.InnerException != null)
+                            errorLog.AppendLine($"InnerException: {ex.InnerException.Message}");
+                        errorLog.AppendLine(new string('-', 80));
+                    }*/
+
+
+                    // --- UPSERT REPAIR ORDER ---
+                    var existingEntity = existingOrders.FirstOrDefault(x =>
+                        x.RepairOrderId == ro.RepairOrderId ||
+                        (!string.IsNullOrEmpty(ro.OrderNumber) && x.OrderNumber == ro.OrderNumber));
+
+                    RepairOrder entity;
+
+                    if (existingEntity == null)
+                    {
+                        entity = new RepairOrder { RepairOrderId = ro.RepairOrderId == Guid.Empty ? Guid.NewGuid() : ro.RepairOrderId };
+                        _centralDB.RepairOrders.Add(entity);
+                    }
+                    else
+                    {
+                        entity = await _centralDB.RepairOrders
+                            .FirstAsync(x => x.RepairOrderId == existingEntity.RepairOrderId, ct);
+                    }
+
+                    // Map order fields
+                    entity.OrderNumber = ro.OrderNumber ?? "";
+                    entity.Paid = ro.Paid;
+                    entity.PaymentMethod = ro.PaymentMethod;
+                    entity.IssueDescription = ro.IssueDescription;
+                    entity.RepairStatus = ro.RepairStatus;
+                    entity.ReceivedDate = ro.ReceivedDate;
+                    entity.ExpectedDeliveryDate = ro.ExpectedDeliveryDate;
+                    entity.StoreId = ro.StoreId;
+                    entity.CreatedAt = ro.CreatedAt;
+                    entity.OrderDate = ro.OrderDate;
+                    entity.UpdatedAt = DateTime.UtcNow;
+                    entity.Delind = ro.Delind;
+                    entity.CustomerId = ro.CustomerId;
+                    entity.UserId = ro.UserId;
+                    entity.Isfinalsubmit = ro.IsFinalSubmit;
+                    entity.TotalAmount = ro.TotalAmount;
+                    entity.ProductType = ro.ProductType;
+                    entity.Cancelled = ro.Cancelled;
+                    entity.Contactmethod = ro.Contactmethod != null ? string.Join(",", ro.Contactmethod) : null;
+                    entity.Paidamount = ro.PaidAmount;
+                    entity.DiscountType = ro.DiscountType;
+                    entity.DiscountValue = ro.DiscountValue;
+                    entity.TaxPercent = ro.TaxPercent;
+                    entity.Status = ro.RepairStatus;
+                    entity.OrderType = ro.OrderType;
+
+                    await _centralDB.SaveChangesAsync(ct);
+                    importedOrders++;
+
+                    // --- UPSERT REPAIR ORDER PARTS ---
+                    if (ro.Parts?.Count > 0)
+                    {
+                        foreach (var p in ro.Parts)
+                        {
+                            var existingPart = await _centralDB.RepairOrderParts
+                                .FirstOrDefaultAsync(x => x.Id == p.Id, ct);
+
+                            if (existingPart != null)
+                            {
+                                // Update existing part
+                                existingPart.ProductId = p.ProductId;
+                                existingPart.ProductName = p.ProductName;
+                                existingPart.PartDescription = p.PartDescription;
+                                existingPart.DeviceType = p.DeviceType;
+                                existingPart.DeviceModel = p.DeviceModel;
+                                existingPart.SerialNumber = p.SerialNumber;
+                                existingPart.Quantity = p.Quantity;
+                                existingPart.Price = p.Price;
+                                existingPart.Total = p.Total;
+                                existingPart.BrandName = p.BrandName;
+                                existingPart.ProductType = p.ProductType;
+                                existingPart.Cancelled = p.Cancelled;
+                                existingPart.Delind = p.Delind;
+                                existingPart.Tokennumber = p.TokenNumber;
+                                existingPart.Subcategoryid = p.SubcategoryId;
+                                existingPart.UpdatedAt = DateTime.Now;
+                            }
+                            else
+                            {
+                                // Insert new part
+                                _centralDB.RepairOrderParts.Add(new RepairOrderPart
+                                {
+                                    Id = p.Id == Guid.Empty ? Guid.NewGuid() : p.Id,
+                                    RepairOrderId = entity.RepairOrderId,
+                                    ProductId = p.ProductId,
+                                    ProductName = p.ProductName,
+                                    PartDescription = p.PartDescription,
+                                    DeviceType = p.DeviceType,
+                                    DeviceModel = p.DeviceModel,
+                                    SerialNumber = p.SerialNumber,
+                                    Quantity = p.Quantity,
+                                    Price = p.Price,
+                                    Total = p.Total,
+                                    CreatedAt = ToUnspecified(p.CreatedAt),
+                                    UpdatedAt = ToUnspecified(p.UpdatedAt),
+                                    BrandName = p.BrandName,
+                                    ProductType = p.ProductType,
+                                    Cancelled = p.Cancelled,
+                                    Delind = p.Delind,
+                                    Tokennumber = p.TokenNumber,
+                                    Subcategoryid = p.SubcategoryId,
+                                    OrderDate = p.OrderDate
+                                });
+                                importedParts++;
+                            }
+                        }
+                        await _centralDB.SaveChangesAsync(ct);
+                    }
+
+                    // --- UPSERT ORDER PAYMENTS ---
+                    if (ro.Payments?.Count > 0)
+                    {
+                        foreach (var pay in ro.Payments)
+                        {
+                            var existingPay = await _centralDB.OrderPayments
+                                .FirstOrDefaultAsync(x => x.Paymentid == pay.PaymentId, ct);
+
+                            if (existingPay != null)
+                            {
+                                // Update existing payment
+                                existingPay.Repairorderid = entity.RepairOrderId;
+                                existingPay.Amount = pay.Amount;
+                                existingPay.PaymentMethod = pay.PaymentMethod;
+                                existingPay.PaidAt = ToUnspecified(pay.PaidAt);
+                                existingPay.CreatedAt = ToUnspecified(pay.CreatedAt);
+                                existingPay.PartialPayment = pay.PartialPayment;
+                                existingPay.TotalAmount = pay.TotalAmount;
+                                existingPay.FullyPaid = pay.FullyPaid;
+                                existingPay.Remainingamount = pay.RemainingAmount;
+                                
+                            }
+                            else
+                            {
+                                // Insert new payment
+                                _centralDB.OrderPayments.Add(new OrderPayment
+                                {
+                                    Paymentid = pay.PaymentId == Guid.Empty ? Guid.NewGuid() : pay.PaymentId,
+                                    Repairorderid = entity.RepairOrderId,
+                                    Amount = pay.Amount,
+                                    PaymentMethod = pay.PaymentMethod,
+                                    PaidAt = ToUnspecified(pay.PaidAt),
+                                    CreatedAt = ToUnspecified(pay.CreatedAt),
+                                    PartialPayment = pay.PartialPayment,
+                                    TotalAmount = pay.TotalAmount,
+                                    FullyPaid = pay.FullyPaid,
+                                    Remainingamount = pay.RemainingAmount,
+                                    OrderDate = pay.OrderDate
+
+                                });
+                                importedPayments++;
+                            }
+                        }
+                        await _centralDB.SaveChangesAsync(ct);
+                    }
+
+                }
+
+                await tx.CommitAsync(ct);
+
+                var summary = "success";
+                if (errorLog.Length > 0)
+                    summary += $"\nErrors:\n{errorLog}";
+
+                return summary;
+            }
+            catch (Exception ex)
+            {
+                await tx.RollbackAsync(ct);
+
+                var fullError = new StringBuilder();
+                fullError.AppendLine($"Exception: {ex.Message}");
+                fullError.AppendLine($"StackTrace: {ex.StackTrace}");
+                if (ex.InnerException != null)
+                {
+                    fullError.AppendLine($"InnerException: {ex.InnerException.Message}");
+                    fullError.AppendLine($"InnerStackTrace: {ex.InnerException.StackTrace}");
+                }
+                return fullError.ToString();
+            }
+        }
+
+
+
+
+        // ------------------ UTILITY METHODS ------------------
+        public DateTime ToUtc(DateTime? dt)
+        {
+            if (!dt.HasValue) return DateTime.UtcNow;
+            return dt.Value.Kind switch
+            {
+                DateTimeKind.Utc => dt.Value,
+                DateTimeKind.Local => dt.Value.ToUniversalTime(),
+                _ => DateTime.SpecifyKind(dt.Value, DateTimeKind.Utc)
+            };
+        }
+
+        public DateTime ToUnspecified(DateTime? dt)
+        {
+            if (!dt.HasValue) return DateTime.Now;
+            return DateTime.SpecifyKind(dt.Value, DateTimeKind.Unspecified);
+        }
+
+
+
+
+
+        public async Task WriteLogAsync(string entity, int records, string status, string? error, CancellationToken ct, ILogger<Controllers.v1.OrderController> _logger)
+        {
+            try
+            {
+                var log = new SyncLog
+                {
+                    Id = Guid.NewGuid(),
+                    Entity = entity,
+                    RecordsProcessed = records,
+                    Status = status,
+                    ErrorMessage = error,
+                    CreatedAt = DateTime.Now
+                };
+
+                _context.SyncLogs.Add(log);
+               // _centralDB.SyncLogs.Add(log);
+                await _context.SaveChangesAsync(ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to persist SyncLog {Entity}", entity);
+            }
+        }
+
+        public IConfiguration Get_config()
+        {
+            return _config;
+        }
+
+        public async Task<string> SyncAllProducts(BeleposContext _context, CentralDbContext _centralDB, IConfiguration _config, CancellationToken ct)
+        {
+            try
+            {
+                string localConn = _config.GetConnectionString("DefaultConnection");
+                string centralConn = _config.GetConnectionString("ConnectionStrings:CentralDb");
+
+
+                await SyncBrands(localConn, centralConn, ct);
+                await SyncModels(localConn, centralConn, ct);
+                await SyncCategories(localConn, centralConn, ct);
+                await SyncSubCategories(localConn, centralConn, ct);
+                //await FileLogger.WriteLogAsync("SyncAll", 0, "Success", "All tables synced successfully.", ct);
+                return "success";
+            }
+            catch (Exception ex)
+            {
+                string msg = $"{ex.Message} | {ex.StackTrace}";
+                //await WriteLogAsync("SyncAll", 0, "Failed", msg, ct);
+                return "All tables synced successfully.";
+            }
+        }
+
+       
+
+        private async Task SyncBrands(string localConn, string centralConn, CancellationToken ct)
+        {
+            //string localConn = ConfigurationManager.ConnectionStrings["LocalDb"].ConnectionString;
+
+           
+            using var local = new NpgsqlConnection(localConn);
+            await local.OpenAsync(); 
+            
+            using var central = new NpgsqlConnection(centralConn);
+            await central.OpenAsync(ct);
+
+            var cmd = new NpgsqlCommand(@"SELECT * FROM ""Brands"" WHERE ""WebUpload"" = false AND delind = false", local);
+            using var reader = await cmd.ExecuteReaderAsync(ct);
+
+            var brands = new List<dynamic>();
+            while (await reader.ReadAsync(ct))
+            {
+                brands.Add(new
+                {
+                    Id = reader["id"],
+                    Name = reader["name"],
+                    StoreId = reader["store_id"]
+                });
+            }
+
+            foreach (var b in brands)
+            {
+                var upsert = new NpgsqlCommand(@"
+                INSERT INTO ""Brands"" (id, name, store_id, isactive, delind)
+                VALUES (@id, @name, @store, true, false)
+                ON CONFLICT (id) DO UPDATE SET name=@name, store_id=@store;", central);
+
+                upsert.Parameters.AddWithValue("id", b.Id);
+                upsert.Parameters.AddWithValue("name", b.Name ?? "");
+                upsert.Parameters.AddWithValue("store", b.StoreId ?? Guid.Empty);
+                await upsert.ExecuteNonQueryAsync(ct);
+
+                var updateLocal = new NpgsqlCommand(@"UPDATE ""Brands"" SET ""WebUpload"" = true WHERE id=@id", local);
+                updateLocal.Parameters.AddWithValue("id", b.Id);
+                await updateLocal.ExecuteNonQueryAsync(ct);
+
+                //await FileLogger.WriteLogAsync("Brand", 0, "Success", $"Brand synced: {b.Name}", ct);
+            }
+        }
+
+        private async Task SyncModels(string _localConn, string _centralConn, CancellationToken ct)
+        {
+            using var local = new NpgsqlConnection(_localConn);
+            await local.OpenAsync(ct);
+
+            using var central = new NpgsqlConnection(_centralConn);
+            await central.OpenAsync(ct);
+
+            var cmd = new NpgsqlCommand(@"SELECT * FROM ""Models"" WHERE delind = false AND ""WebUpload"" = false", local);
+            using var reader = await cmd.ExecuteReaderAsync(ct);
+
+            var models = new List<dynamic>();
+            while (await reader.ReadAsync(ct))
+            {
+                models.Add(new
+                {
+                    Id = reader["model_id"],
+                    Name = reader["name"],
+                    BrandId = reader["brand_id"],
+                    DeviceType = reader["device_type"]
+                });
+            }
+
+            foreach (var m in models)
+            {
+                var upsert = new NpgsqlCommand(@"
+                INSERT INTO ""Models"" (model_id, name, brand_id, device_type, delind)
+                VALUES (@id, @name, @brand, @type, false)
+                ON CONFLICT (model_id) DO UPDATE SET name=@name, brand_id=@brand, device_type=@type;", central);
+
+                upsert.Parameters.AddWithValue("id", m.Id);
+                upsert.Parameters.AddWithValue("name", m.Name ?? "");
+                upsert.Parameters.AddWithValue("brand", m.BrandId ?? Guid.Empty);
+                upsert.Parameters.AddWithValue("type", m.DeviceType ?? "");
+                await upsert.ExecuteNonQueryAsync(ct);
+
+                var updateLocal = new NpgsqlCommand(@"UPDATE ""Models"" SET ""WebUpload"" = true WHERE model_id=@id", local);
+                updateLocal.Parameters.AddWithValue("id", m.Id);
+                await updateLocal.ExecuteNonQueryAsync(ct);
+
+                //await FileLogger.WriteLogAsync("Model", 0, "Success", $"Model synced: {m.Name}", ct);
+            }
+        }
+
+
+        #region sync category
+        private async Task SyncCategories(string _localConn, string _centralConn, CancellationToken ct)
+        {
+            await using var local = new NpgsqlConnection(_localConn);
+            await local.OpenAsync(ct);
+
+            await using var central = new NpgsqlConnection(_centralConn);
+            await central.OpenAsync(ct);
+
+            await using var txCentral = await central.BeginTransactionAsync(ct);
+            await using var txLocal = await local.BeginTransactionAsync(ct);
+
+            try
+            {
+                // Get unsynced categories from local
+                var selectCmd = new NpgsqlCommand(@"
+            SELECT categoryid, category_name, imagename, store_id, delind, is_visible
+            FROM ""Categories""
+            WHERE delind = false AND (""WebUpload"" = false OR ""WebUpload"" IS NULL);", local, txLocal);
+
+                using var reader = await selectCmd.ExecuteReaderAsync(ct);
+                var categories = new List<dynamic>();
+
+                while (await reader.ReadAsync(ct))
+                {
+                    categories.Add(new
+                    {
+                        Id = reader["categoryid"],
+                        Name = reader["category_name"],
+                        Image = reader["imagename"],
+                        StoreId = reader["store_id"],
+                        DelInd = reader["delind"],
+                        IsVisible = reader["is_visible"]
+                    });
+                }
+
+                await reader.CloseAsync();
+
+                if (categories.Count == 0)
+                {
+                    Console.WriteLine("No categories to sync.");
+                    await txLocal.CommitAsync(ct);
+                    await txCentral.CommitAsync(ct);
+                    return;
+                }
+
+                foreach (var c in categories)
+                {
+                    // Insert if not exists, else update
+                    var upsertCmd = new NpgsqlCommand(@"
+                INSERT INTO ""Categories""
+                    (categoryid, category_name, imagename, delind, store_id, is_visible, ""WebUpload"", created_at, lastmodified_at)
+                VALUES
+                    (@id, @name, @image, @delind, @store, @visible, true, NOW(), NOW())
+                ON CONFLICT (categoryid)
+                DO UPDATE SET
+                    category_name = EXCLUDED.category_name,
+                    imagename = EXCLUDED.imagename,
+                    delind = EXCLUDED.delind,
+                    store_id = EXCLUDED.store_id,
+                    is_visible = EXCLUDED.is_visible,
+                    ""WebUpload"" = true,
+                    lastmodified_at = NOW();", central, txCentral);
+
+                    upsertCmd.Parameters.AddWithValue("id", c.Id);
+                    upsertCmd.Parameters.AddWithValue("name", c.Name ?? "");
+                    upsertCmd.Parameters.AddWithValue("image", c.Image ?? "");
+                    upsertCmd.Parameters.AddWithValue("delind", c.DelInd ?? false);
+                    upsertCmd.Parameters.AddWithValue("store", c.StoreId ?? Guid.Empty);
+                    upsertCmd.Parameters.AddWithValue("visible", c.IsVisible ?? false);
+
+                    await upsertCmd.ExecuteNonQueryAsync(ct);
+
+                    // Mark local record as uploaded
+                    var updateLocal = new NpgsqlCommand(@"
+                UPDATE ""Categories"" 
+                SET ""WebUpload"" = true, lastmodified_at = NOW()
+                WHERE categoryid = @id;", local, txLocal);
+
+                    updateLocal.Parameters.AddWithValue("id", c.Id);
+                    await updateLocal.ExecuteNonQueryAsync(ct);
+
+                    Console.WriteLine($"Synced Category: {c.Name}");
+                }
+
+                await txCentral.CommitAsync(ct);
+                await txLocal.CommitAsync(ct);
+            }
+            catch (Exception ex)
+            {
+                await txCentral.RollbackAsync(ct);
+                await txLocal.RollbackAsync(ct);
+                Console.WriteLine($"Category sync failed: {ex.Message}\n{ex.StackTrace}");
+            }
+        }
+
+        #endregion
+
+
+        private async Task SyncSubCategories(string _localConn, string _centralConn, CancellationToken ct)
+        {
+            using var local = new NpgsqlConnection(_localConn);
+            await local.OpenAsync(ct);
+
+            using var central = new NpgsqlConnection(_centralConn);
+            await central.OpenAsync(ct);
+
+            var cmd = new NpgsqlCommand(@"SELECT * FROM ""SubCategories"" WHERE delind = false AND ""WebUpload"" = false", local);
+            using var reader = await cmd.ExecuteReaderAsync(ct);
+
+            var subcategories = new List<dynamic>();
+            while (await reader.ReadAsync(ct))
+            {
+                subcategories.Add(new
+                {
+                    Id = reader["subcategoryid"],
+                    CategoryId = reader["categoryid"],
+                    Name = reader["name"],
+                    Image = reader["image"]
+                });
+            }
+
+            foreach (var sc in subcategories)
+            {
+                var upsert = new NpgsqlCommand(@"
+                INSERT INTO ""SubCategories"" (subcategoryid, categoryid, name, image, delind, ""WebUpload"")
+                VALUES (@id, @cat, @name, @image, false, true)
+                ON CONFLICT (subcategoryid) DO UPDATE SET categoryid=@cat, name=@name, image=@image;", central);
+
+                upsert.Parameters.AddWithValue("id", sc.Id);
+                upsert.Parameters.AddWithValue("cat", sc.CategoryId ?? Guid.Empty);
+                upsert.Parameters.AddWithValue("name", sc.Name ?? "");
+                upsert.Parameters.AddWithValue("image", sc.Image ?? "");
+                await upsert.ExecuteNonQueryAsync(ct);
+
+                var updateLocal = new NpgsqlCommand(@"UPDATE ""SubCategories"" SET ""WebUpload"" = true WHERE subcategoryid=@id", local);
+                updateLocal.Parameters.AddWithValue("id", sc.Id);
+                await updateLocal.ExecuteNonQueryAsync(ct);
+
+                //await WriteLogAsync("SubCategory", 0, "Success", $"SubCategory synced: {sc.Name}", ct, _logger);
+            }
+        }
+
+
     }
 }
 

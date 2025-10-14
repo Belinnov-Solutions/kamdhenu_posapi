@@ -39,8 +39,8 @@ namespace BELEPOS
             builder.Services.AddDbContext<CentralDbContext>(opt =>
             opt.UseNpgsql(builder.Configuration.GetConnectionString("CentralDb")));
 
-            builder.Services.Configure<OrderSyncOptions>(builder.Configuration.GetSection("OrderSync"));
-            builder.Services.AddHostedService<OrderSyncWorker>();   // <-- the worker below
+            //builder.Services.Configure<OrderSyncOptions>(builder.Configuration.GetSection("OrderSync"));
+           
 
             builder.Services.AddControllers()
             .AddJsonOptions(options =>
@@ -113,7 +113,7 @@ namespace BELEPOS
 
             builder.Services.AddSingleton<IAuthorizationPolicyProvider, CustomAuthorizationPolicyProvider>();
             builder.Services.AddSingleton<IAuthorizationHandler, PermissionHandler>();
-            builder.Services.AddHostedService<OrderSyncWorker>();
+            //builder.Services.AddHostedService<OrderSyncWorker>();
             builder.Services.AddScoped<JwtService>();
             builder.Services.AddScoped<IClaimsTransformation, RoleHierarchyClaimsTransformer>();
             var app = builder.Build();

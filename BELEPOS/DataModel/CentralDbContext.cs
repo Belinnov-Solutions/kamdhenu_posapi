@@ -6,9 +6,6 @@ namespace BELEPOS.DataModel;
 
 public partial class CentralDbContext : DbContext
 {
-    //public CentralDbContext()
-    //{
-    //}
 
     public CentralDbContext(DbContextOptions<CentralDbContext> options)
         : base(options)
@@ -38,6 +35,8 @@ public partial class CentralDbContext : DbContext
     public virtual DbSet<Part> Parts { get; set; }
 
     public virtual DbSet<Permission> Permissions { get; set; }
+
+    public virtual DbSet<PrintReceiptSetting> PrintReceiptSettings { get; set; }
 
     public virtual DbSet<Product> Products { get; set; }
 
@@ -81,9 +80,9 @@ public partial class CentralDbContext : DbContext
 
     public virtual DbSet<Warehouse> Warehouses { get; set; }
 
-//    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
-//#warning To protect potentially sensitive information in your connection string, you should move it out of source code. You can avoid scaffolding the connection string by using the Name= syntax to read it from configuration - see https://go.microsoft.com/fwlink/?linkid=2131148. For more guidance on storing connection strings, see https://go.microsoft.com/fwlink/?LinkId=723263.
-//        => optionsBuilder.UseNpgsql("Host=49.205.172.128;Database=Kamdhenu;Username=postgres;Password=yellowbus");
+    /*protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
+#warning To protect potentially sensitive information in your connection string, you should move it out of source code. You can avoid scaffolding the connection string by using the Name= syntax to read it from configuration - see https://go.microsoft.com/fwlink/?linkid=2131148. For more guidance on storing connection strings, see https://go.microsoft.com/fwlink/?LinkId=723263.
+        => optionsBuilder.UseNpgsql("Host=49.205.172.128;Database=KamdhenuTest;Username=postgres;Password=yellowbus");*/
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -408,6 +407,7 @@ public partial class CentralDbContext : DbContext
                 .HasColumnType("timestamp without time zone")
                 .HasColumnName("created_at");
             entity.Property(e => e.FullyPaid).HasDefaultValue(false);
+            entity.Property(e => e.OrderDate).HasColumnName("order_date");
             entity.Property(e => e.PaidAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
@@ -423,6 +423,11 @@ public partial class CentralDbContext : DbContext
                 .HasDefaultValueSql("0");
             entity.Property(e => e.Repairorderid).HasColumnName("repairorderid");
             entity.Property(e => e.TotalAmount).HasPrecision(10, 2);
+
+            entity.HasOne(d => d.Repairorder).WithMany(p => p.OrderPayments)
+                .HasForeignKey(d => d.Repairorderid)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("fk_orderpayment_repairorder");
         });
 
         modelBuilder.Entity<Part>(entity =>
@@ -482,6 +487,22 @@ public partial class CentralDbContext : DbContext
             entity.Property(e => e.Permissionname)
                 .HasMaxLength(100)
                 .HasColumnName("permissionname");
+        });
+
+        modelBuilder.Entity<PrintReceiptSetting>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("PrintReceiptSettings_pkey");
+
+            entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()");
+            entity.Property(e => e.IsActive)
+                .HasDefaultValue(true)
+                .HasColumnName("is_active");
+            entity.Property(e => e.IsDeleted)
+                .HasDefaultValue(false)
+                .HasColumnName("is_deleted");
+            entity.Property(e => e.ReceiptName)
+                .HasMaxLength(100)
+                .HasColumnName("receipt_name");
         });
 
         modelBuilder.Entity<Product>(entity =>
@@ -715,6 +736,7 @@ public partial class CentralDbContext : DbContext
                 .HasDefaultValue(false)
                 .HasColumnName("isfinalsubmit");
             entity.Property(e => e.IssueDescription).HasColumnName("issue_description");
+            entity.Property(e => e.OrderDate).HasColumnName("order_date");
             entity.Property(e => e.OrderNumber)
                 .HasMaxLength(50)
                 .HasColumnName("order_number");
@@ -784,6 +806,7 @@ public partial class CentralDbContext : DbContext
             entity.Property(e => e.DeviceType)
                 .HasMaxLength(100)
                 .HasColumnName("device_type");
+            entity.Property(e => e.OrderDate).HasColumnName("order_date");
             entity.Property(e => e.PartDescription).HasColumnName("part_description");
             entity.Property(e => e.Price)
                 .HasPrecision(10, 2)
