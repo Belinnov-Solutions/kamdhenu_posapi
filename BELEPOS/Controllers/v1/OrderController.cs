@@ -942,63 +942,6 @@ namespace BELEPOS.Controllers.v1
 
         
 
-
-
-        /*#region token by category
-        [HttpGet("TokenListByCategory")]
-        public async Task<IActionResult> GetTokenListByCategory(
-            [FromQuery] Guid categoryId,
-            [FromQuery] DateTime? dateFrom,
-            [FromQuery] DateTime? dateTo)
-        {
-            try
-            {
-                if (dateFrom.HasValue) dateFrom = DateTime.SpecifyKind(dateFrom.Value, DateTimeKind.Utc);
-                if (dateTo.HasValue) dateTo = DateTime.SpecifyKind(dateTo.Value, DateTimeKind.Utc);
-
-                var orders = _context.RepairOrders
-                    .Where(r => !(r.Delind ?? false) && !(r.Cancelled ?? false) && r.CreatedAt != null);
-
-                if (dateFrom.HasValue && dateTo.HasValue)
-                    orders = orders.Where(r => r.CreatedAt >= dateFrom && r.CreatedAt <= dateTo);
-
-                var tokens = await (
-                    from r in orders
-                    from p in r.RepairOrderParts
-                    where p.ProductId != null && !string.IsNullOrEmpty(p.Tokennumber)
-                    join pr in _context.Products on p.ProductId!.Value equals pr.Id
-                    join c in _context.Categories on pr.CategoryId equals c.Categoryid
-                    where c.Categoryid == categoryId
-                    select new
-                    {
-                        p.Tokennumber,
-                        r.CreatedAt,
-                        CategoryName = c.CategoryName
-                    }
-                )
-                .Distinct()
-                .OrderBy(x => x.CreatedAt)
-                .ToListAsync();
-
-                return Ok(new
-                {
-                    CategoryId = categoryId,
-                    CategoryName = tokens.FirstOrDefault()?.CategoryName,
-                    Tokens = tokens.Select(t => new
-                    {
-                        TokenNumber = t.Tokennumber,
-                        CreatedAt = t.CreatedAt
-                    })
-                });
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { message = "Failed to fetch token list", error = ex.Message });
-            }
-        }
-        #endregion*/
-
-
         #region receipt by token
         [HttpGet("ReceiptByToken")]
         public async Task<IActionResult> GetReceiptByToken([FromQuery] string tokenNumber)
@@ -1118,72 +1061,7 @@ namespace BELEPOS.Controllers.v1
         }*/
 
 
-        /*[HttpGet("ReceiptByTokenV2")]
-        public async Task<IActionResult> GetReceiptByTokenV2([FromQuery] string tokenNumber, [FromQuery] DateTime? date = null)
-        {
-            try
-            {
-                // Ensure UTC Kind
-                var targetDate = DateTime.SpecifyKind((date?.Date ?? DateTime.UtcNow.Date), DateTimeKind.Utc);
-
-                var items = await (
-                    from r in _context.RepairOrders
-                    from p in r.RepairOrderParts
-                    where p.Tokennumber == tokenNumber
-                          && p.ProductId != null
-                          && p.OrderDate.HasValue
-                          && p.OrderDate.Value.Date.ToString("yyyy-MM-dd") == targetDate.ToString("yyyy-MM-dd")
-                    join pr in _context.Products on p.ProductId!.Value equals pr.Id
-                    join c in _context.Categories on pr.CategoryId equals c.Categoryid
-                    select new
-                    {
-                        r.RepairOrderId,
-                        r.CreatedAt,
-                        r.PaymentMethod,
-                        p.Tokennumber,
-                        ProductId = pr.Id,
-                        ProductName = p.ProductName,
-                        Quantity = p.Quantity,
-                        Price = p.Price,
-                        Total = p.Total,
-                        CategoryName = c.CategoryName,
-                        OrderDate = r.OrderDate
-                    }
-                ).ToListAsync();
-
-                if (!items.Any())
-                    return NotFound(new { message = "No items found for this token on the given date." });
-
-                var orderDate = items.First().OrderDate.HasValue
-                    ? DateTime.SpecifyKind(items.First().OrderDate.Value, DateTimeKind.Utc)
-                    : DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Utc);
-
-                var receipt = new
-                {
-                    TokenNumber = tokenNumber,
-                    Date = targetDate,
-                    PaymentMethod = items.First().PaymentMethod,
-                    Categories = items.Select(i => i.CategoryName).Distinct().ToList(),
-                    CreatedAt = orderDate,
-                    Items = items.Select(i => new
-                    {
-                        i.ProductId,
-                        i.ProductName,
-                        i.Quantity,
-                        i.Price,
-                        i.Total,
-                        i.CategoryName
-                    }).ToList(),
-                    ReceiptTotal = items.Sum(i => i.Total ?? 0m)
-                };
-
-                return Ok(receipt);
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { message = "Failed to fetch receipt", error = ex.ToString() });
-            }
-        }*/
+        
 
 
         [HttpGet("ReceiptByTokenV2")]
@@ -1268,57 +1146,6 @@ namespace BELEPOS.Controllers.v1
 
 
         #endregion
-
-        /*[HttpDelete("CancelOrder")] public async Task<IActionResult> CancelOrder([FromQuery] string tokenNumber, [FromQuery] DateTime? date = null)
-        {
-            try
-            {
-                // If no date provided, use today's date (UTC safe)
-                var targetDate = date?.Date ?? DateTime.UtcNow.Date;
-                var orders = await _context.RepairOrders
-                        .Include(r => r.RepairOrderParts) // include parts to update them together
-                        .Where(r => r.RepairOrderParts.Any(p =>
-                            p.Tokennumber == tokenNumber &&
-                            p.CreatedAt.HasValue &&
-                            p.CreatedAt.Value.Date == targetDate))
-                        .ToListAsync();
-
-                if (!orders.Any())
-                    return NotFound(new { message = "No repair orders found for this token on the given date." });
-
-                // Soft delete (mark Delind = true)
-                foreach (var order in orders)
-                {
-                    //order.Cancelled = true;
-                    order.WebUpload = false;
-                    //order.Delind = true;
-                    _context.RepairOrders.Update(order);
-
-                    // Also mark all parts of this order
-                    foreach (var part in order.RepairOrderParts)
-                    {
-                        part.Cancelled = true;
-                        part.Delind = true;
-                        _context.RepairOrderParts.Update(part);
-                    }
-                }
-
-                await _context.SaveChangesAsync();
-
-                return Ok(new
-                {
-                    message = "Receipt deleted successfully.",
-                    TokenNumber = tokenNumber,
-                    Date = targetDate,
-                    DeletedOrders = orders.Select(o => o.RepairOrderId)
-                });
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { message = "Failed to delete receipt", error = ex.Message });
-            }
-        }*/
-
 
 
         [HttpDelete("CancelOrder")]
